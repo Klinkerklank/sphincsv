@@ -1,5 +1,5 @@
 # Rust / Cargo
-/target/
+target/
 
 # Rust compiler output
 *.rlib
