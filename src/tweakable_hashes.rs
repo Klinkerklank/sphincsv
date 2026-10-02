@@ -3,12 +3,16 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
-use crate::adrs::Adrs; // ADRS data structure
-use crate::params::{SPX_N, SPX_M, SPX_LEN, SHA256_IN, SHA256_OUT}; // get the needed parameters
+use crate::adrs::Adrs;       // ADRS data structure
+use crate::params::{PARAMS}; // the SPHINCS+V parameters
 
 use sha2::{Digest, Sha256}; // use SHA-2 for the hashing functions
 use hmac::{Hmac, Mac};      // use the HMAC function
 use hmac::digest::KeyInit;  // for HMAC key initialisation
+
+// SHA2 parameters
+pub const SHA256_IN: usize  = 64;
+pub const SHA256_OUT: usize = 32;
 
 // helper for the first-block hash input setup
 fn initialise_hash(
