@@ -1,0 +1,228 @@
+
+// TODO remove after code is done
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
+use crate::adrs::Adrs; // ADRS data structure
+use crate::params::{SPX_N, SPX_M, SPX_LEN, SHA256_IN, SHA256_OUT}; // get the needed parameters
+
+use sha2::{Digest, Sha256}; // use SHA-2 for the hashing functions
+use hmac::{Hmac, Mac};      // use the HMAC function
+use hmac::digest::KeyInit;  // for HMAC key initialisation
+
+// helper for the first-block hash input setup
+fn initialise_hash(
+    pk_seed: &[u8; SPX_N], // PK.seed
+) -> Sha256 {
+
+    // create the zero padding
+    let zero_padding = [0u8; SHA256_IN-SPX_N];
+
+    // initialise the SHA-2 state
+    let mut hash = Sha256::new();
+
+    hash.update(pk_seed);      // absorb PK.seed
+    hash.update(zero_padding); // absorb the zero padding
+
+    hash
+}
+
+// H_msg(R, PK.seed, PK.root, M) = MGF1-SHA-256(R || PK.seed || SHA-256(R || PK.seed || PK.root || M), m)
+pub fn h_msg(
+    r: &[u8; SPX_N],       // message randomiser
+    pk_seed: &[u8; SPX_N], // PK.seed
+    pk_root: &[u8; SPX_N], // PK.root
+    context: &[u8],        // context string
+    message: &[u8],        // message to be signed
+) -> [u8; SPX_M] {
+
+    // initialise the SHA-2 state
+    let mut hash = Sha256::new();
+
+    // absorb all inputs for the inner hash
+    hash.update(r);                     // absorb the message randomiser
+    hash.update(pk_seed);               // absorb PK.seed
+    hash.update(pk_root);               // absorb PK.root
+    hash.update([0u8]);                 // absorb domain separator byte
+    hash.update([context.len() as u8]); // absorb the context length
+    hash.update(context);               // absorb the context string
+    hash.update(message);               // absorb the message to be signed
+
+    let digest = hash.finalize(); // finalise the digest
+
+    // construct the MGF1 seed (R || PK.seed || digest || counter)
+    let mut seed = Vec::with_capacity(2*SPX_N + SHA256_OUT + 4);
+    seed.extend_from_slice(r);         // set the message randomiser
+    seed.extend_from_slice(pk_seed);   // set PK.seed
+    seed.extend_from_slice(&digest);   // set the digest from the inner hash
+    seed.extend_from_slice(&[0u8; 4]); // set the counter, initially zero
+
+    // get the required number of hash outputs
+    let num_hashes = (SPX_M + SHA256_OUT - 1) / SHA256_OUT;
+
+    // declare the output array
+    let mut out = [0u8; SPX_M];
+
+    for hash_nr in 0..num_hashes {
+
+        let counter = (hash_nr as u32).to_be_bytes();         // MGF1 counter is a 32-bit big-endian integer
+        seed[2 * SPX_N + SHA256_OUT..].copy_from_slice(&counter); // write the counter to the input buffer
+
+        let mut hash = Sha256::new(); // initialise the SHA-2 state
+
+        hash.update(&seed); // absorb the entire seed buffer
+
+        let digest = hash.finalize(); // finalise the digest
+
+        let offset = hash_nr * SHA256_OUT;             // find the offset to write to in the output array
+        let remaining = SPX_M - offset;                // compute how many bytes are left to fill
+        let bytes_to_copy = remaining.min(SHA256_OUT); // compute how many bytes to copy to the output
+
+        // copy (and truncate) the digest to the output
+        out[offset..offset + bytes_to_copy].copy_from_slice(&digest[..bytes_to_copy]);
+    }
+
+    out
+}
+
+// PRF_msg(SK.prf, optrand, M) = Trunc_n(HMAC-SHA-256(SK.prf, optrand || M))
+pub fn prf_msg(
+    sk_prf: &[u8; SPX_N],  // SK.prf
+    optrand: &[u8; SPX_N], // (optional) additional randomness
+    context: &[u8],        // context string
+    message: &[u8],        // message to be signed
+) -> [u8; SPX_N] {
+    type HmacSha256 = Hmac<Sha256>;
+
+    // initialise the HMAC with SK.prf as key
+    let mut mac = HmacSha256::new_from_slice(sk_prf).expect("Invalid HMAC key length");
+
+    mac.update(optrand);                // absorb additional randomness
+    mac.update(&[0u8]);                 // absorb the domain separator byte
+    mac.update(&[context.len() as u8]); // absorb context length
+    mac.update(context);                // absorb context string
+    mac.update(message);                // absorb message to be signed
+
+    let hmac = mac.finalize().into_bytes(); // finalise the digest
+
+    // truncate the digest to SPX_N bytes
+    let mut trunc = [0u8; SPX_N];
+    trunc.copy_from_slice(&hmac[..SPX_N]);
+
+    trunc
+}
+
+// PRF(PK.seed, SK.seed, ADRS) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || SK.seed))
+pub fn prf(
+    pk_seed: &[u8; SPX_N], // PK.seed
+    sk_seed: &[u8; SPX_N], // SK.seed
+    adrs: &Adrs,           // ADRS
+) -> [u8; SPX_N] {
+
+    // hash input setup
+    let adrsc = adrs.compress(); // compress ADRS to ADRS^c
+    
+    // process the first block of input
+    let mut hash = initialise_hash(pk_seed);
+    
+    // absorb all remaining inputs
+    hash.update(adrsc);   // absorb ADRS^c
+    hash.update(sk_seed); // absorb SK.seed
+
+    // finalise the digest computation
+    let digest = hash.finalize();
+
+    // truncate the digest to SPX_N bytes
+    let mut trunc = [0u8; SPX_N];
+    trunc.copy_from_slice(&digest[..SPX_N]);
+
+    // return the truncated digest
+    trunc
+}
+
+// F(PK.seed, ADRS, M_1) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_1))
+pub fn f(
+    pk_seed: &[u8; SPX_N], // PK.seed
+    adrs: &Adrs,           // ADRS
+    m: &[u8; SPX_N],       // input message
+) -> [u8; SPX_N] {
+
+    // hash input setup
+    let adrsc = adrs.compress(); // compress ADRS to ADRS^c
+    
+    // process the first block of input
+    let mut hash = initialise_hash(pk_seed);
+    
+    // absorb all remaining inputs
+    hash.update(adrsc); // absorb ADRS^c
+    hash.update(m);     // absorb M1
+
+    // finalise the digest computation
+    let digest = hash.finalize();
+
+    // truncate the digest to SPX_N bytes
+    let mut trunc = [0u8; SPX_N];
+    trunc.copy_from_slice(&digest[..SPX_N]);
+
+    // return the truncated digest
+    trunc
+}
+
+// H(PK.seed, ADRS, M_2) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_2))
+pub fn h(
+    pk_seed: &[u8; SPX_N], // PK.seed
+    adrs: &Adrs,           // ADRS
+    m1: &[u8; SPX_N],      // 1st input message
+    m2: &[u8; SPX_N],      // 2nd input message
+) -> [u8; SPX_N] {
+
+    // hash input setup
+    let adrsc = adrs.compress(); // compress ADRS to ADRS^c
+    
+    // process the first block of input
+    let mut hash = initialise_hash(pk_seed);
+    
+    // absorb all remaining inputs
+    hash.update(adrsc); // absorb ADRS^c
+    hash.update(m1);    // absorb M1
+    hash.update(m2);    // absorb M2
+
+    // finalise the digest computation
+    let digest = hash.finalize();
+
+    // truncate the digest to SPX_N bytes
+    let mut trunc = [0u8; SPX_N];
+    trunc.copy_from_slice(&digest[..SPX_N]);
+
+    // return the truncated digest
+    trunc
+}
+
+// T_len(PK.seed, ADRS, M_len) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_len))
+pub fn t_len(
+    pk_seed: &[u8; SPX_N],        // PK.seed
+    adrs: &Adrs,                  // ADRS
+    chains: &[u8; SPX_LEN*SPX_N], // concatenation of all chain end values in a WOTS instance
+) -> [u8; SPX_N] {
+
+    // hash input setup
+    let adrsc = adrs.compress(); // compress ADRS to ADRS^c
+    
+    // process the first block of input
+    let mut hash = initialise_hash(pk_seed);
+    
+    // absorb all remaining inputs
+    hash.update(adrsc);  // absorb ADRS^c
+    hash.update(chains); // absorb all chain values
+
+    // finalise the digest computation
+    let digest = hash.finalize();
+
+    // truncate the digest to SPX_N bytes
+    let mut trunc = [0u8; SPX_N];
+    trunc.copy_from_slice(&digest[..SPX_N]);
+
+    // return the truncated digest
+    trunc
+}
+
