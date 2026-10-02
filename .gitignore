@@ -1,0 +1,29 @@
+# Rust / Cargo
+/target/
+
+# Rust compiler output
+*.rlib
+*.rmeta
+
+# debugging / temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# generated assembly / object files
+*.s
+*.o
+*.a
+
+# core dumps
+core
+core.*
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
