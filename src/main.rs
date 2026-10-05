@@ -3,10 +3,12 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+// supporting modules
 mod params;           // SPHINCS+V parameters
 mod adrs;             // ADRS data structure
 mod tweakable_hashes; // hash function instantiations
 
+// algorithmic modules
 mod porsfp;   // PORS+FP implementation
 mod wots;     // WOTS+ implementation
 mod xmss;     // XMSS implementation

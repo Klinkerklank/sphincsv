@@ -1,3 +1,8 @@
+/*
+ * SPHINCS+V parameters
+ * 
+ * author: Dennis op 't Roodt 2026-10-05 (d.n.e.o.t.roodt@tue.nl)
+ */
 
 pub const PARAMS: SphincsvParams = SphincsvParams {
 
@@ -11,9 +16,10 @@ pub const PARAMS: SphincsvParams = SphincsvParams {
     spx_h: 66,
     spx_d: 22,
 
-    // FORS
-    spx_a: 6,
-    spx_k: 33,
+    // PORS+FP
+    spx_mmax: 156,
+    spx_t:    33 * (1 << 6), // 33*(2^6)
+    spx_k:    33,
 
 };
 
@@ -23,15 +29,16 @@ pub struct SphincsvParams {
     pub spx_n: usize,
 
     // WOTS+
-    pub spx_lg_w: usize,
+    pub spx_lg_w: usize, // WOTS+ chain length
 
     // HT and XMSS
-    pub spx_h: usize,
-    pub spx_d: usize,
+    pub spx_h: usize, // total hypertree height
+    pub spx_d: usize, // Number of layers of XMSS trees in the hypertree
 
-    // FORS
-    pub spx_a: usize,
-    pub spx_k: usize,
+    // PORS+FP
+    pub spx_mmax: usize, // maximum number of PORS+FP secret key values in a signature
+    pub spx_t: usize,    // total number of PORS+FP tree secret-key leaves
+    pub spx_k: usize,    // number of PORS+FP secret-key leaves revealed for a signature
 
 }
 
@@ -41,13 +48,18 @@ pub const fn floor_log2(x: usize) -> usize {
 }
 
 // helper function
+pub const fn ceil_log2(x: usize) -> usize {
+    usize::BITS as usize - x.leading_zeros() as usize
+}
+
+// helper function
 pub const fn ceil_div(x: usize, y: usize) -> usize {
     (x + y - 1) / y
 }
 
 impl SphincsvParams {
 
-    // SPHINCS+ parameters
+    // SPHINCS+V parameters
 
     pub const fn spx_skbytes(&self) -> usize {
         4*self.spx_n // 4 * SPX_N
@@ -58,13 +70,13 @@ impl SphincsvParams {
     }
 
     pub const fn spx_m(&self) -> usize {
-        ceil_div(self.spx_k * self.spx_a, 8)
+        self.spx_n
             + ceil_div(self.spx_h - self.spx_h_prime(), 8)
             + ceil_div(self.spx_h_prime(), 8)
     }
 
     pub const fn spx_md_len(&self) -> usize {
-        (self.spx_k * self.spx_a + 7) / 8 // ceil((SPX_K * SPX_A) / 8)
+        self.spx_n / 8
     }
 
     pub const fn spx_idx_tree_len(&self) -> usize {
@@ -105,14 +117,15 @@ impl SphincsvParams {
         (1 << (self.spx_h_prime() + 1)) - 1 // 2^(SPX_H_PRIME+1)-1
     }
 
-    // FORS parameters
+    // PORS+FP parameters
 
-    pub const fn spx_t(&self) -> usize {
-        1 << self.spx_a // 2^SPX_A
+    // height of the PORS+FP tree
+    pub const fn spx_h_bar(&self) -> usize {
+        ceil_log2(spx_t) // ceil(log_2(SPX_T))
     }
 
-    pub const fn fors_tree_size(&self) -> usize {
-        (1 << (self.spx_a + 1)) - 1 // 2^(SPX_A+1)-1
+    pub const fn pors_tree_size(&self) -> usize {
+        1 << self.spx_h_bar() // 2^(ceil(log_2(SPX_T)))
     }
 
     // signature component byte lengths
@@ -129,23 +142,13 @@ impl SphincsvParams {
         self.spx_d * self.xmss_sig() // SPX_D * XMSS_SIG
     }
 
-    pub const fn fors_sig(&self) -> usize {
-        self.spx_k * (1 + self.spx_a) * self.spx_n // SPX_K * (1 + SPX_A) * SPX_N
+    pub const fn pors_sig(&self) -> usize {
+        4 + self.spx_n*self.spx_k + self.spx_mmax*self.spx_n // u32 + (SPX_K*SPX_N) + (SPX_M_MAX*SPX_N)
     }
 
     pub const fn spx_sig(&self) -> usize {
-        self.spx_n + self.fors_sig() + self.ht_sig() // SPX_N + FORS_SIG + HT_SIG
+        self.spx_n + self.pors_sig() + self.ht_sig() // SPX_N + PORS_SIG + HT_SIG
     }
     
 }
 
-// ADRS type field values
-pub mod adrs_type {
-    pub const WOTS_HASH: u32  = 0;
-    pub const WOTS_PK: u32    = 1;
-    pub const TREE: u32       = 2;
-    pub const FORS_TREE: u32  = 3;
-    pub const FORS_ROOTS: u32 = 4;
-    pub const WOTS_PRF: u32   = 5;
-    pub const FORS_PRF: u32   = 6;
-}

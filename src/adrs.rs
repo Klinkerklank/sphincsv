@@ -2,7 +2,14 @@
 // TODO remove after code is done
 #![allow(dead_code)]
 
-// SPHINCS+ ADRS structure
+/*
+ * SPHINCS+ ADRS structure
+ * 
+ * author: Dennis op 't Roodt 2026-10-02 (d.n.e.o.t.roodt@tue.nl)
+ */
+
+ // SPHINCS+ ADRS structure
+#[derive(Clone, Copy)] // allows for cloning ADRS structures
 pub struct Adrs {
     words: [u32; 8],
 }
@@ -84,13 +91,25 @@ impl Adrs {
     }
     
     // get the key pair address
-    pub fn get_key_pair_addr(&mut self) -> u32 {
+    pub fn get_key_pair_addr(&self) -> u32 {
         return self.words[5];
     }
     
     // get the tree index
-    pub fn get_tree_index(&mut self) -> u32 {
+    pub fn get_tree_index(&self) -> u32 {
         return self.words[7];
     }
     
 }
+
+// ADRS type field values
+pub mod adrs_type {
+    pub const WOTS_HASH: u32  = 0;
+    pub const WOTS_PK: u32    = 1;
+    pub const TREE: u32       = 2;
+    pub const PORS_TREE: u32  = 3;
+    pub const PORS_ROOTS: u32 = 4;
+    pub const WOTS_PRF: u32   = 5;
+    pub const PORS_PRF: u32   = 6;
+}
+
