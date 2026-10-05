@@ -2,36 +2,36 @@
 pub const PARAMS: SphincsvParams = SphincsvParams {
 
     // security parameter
-    n: 16,
+    spx_n: 16,
 
     // WOTS+
-    lg_w: 4,
+    spx_lg_w: 4,
 
     // HT and XMSS
-    h: 66,
-    d: 22,
+    spx_h: 66,
+    spx_d: 22,
 
     // FORS
-    a: 6,
-    k: 33,
+    spx_a: 6,
+    spx_k: 33,
 
 };
 
 pub struct SphincsvParams {
 
     // security parameter
-    pub n: usize,
+    pub spx_n: usize,
 
     // WOTS+
-    pub lg_w: usize,
+    pub spx_lg_w: usize,
 
     // HT and XMSS
-    pub h: usize,
-    pub d: usize,
+    pub spx_h: usize,
+    pub spx_d: usize,
 
     // FORS
-    pub a: usize,
-    pub k: usize,
+    pub spx_a: usize,
+    pub spx_k: usize,
 
 }
 
@@ -50,25 +50,25 @@ impl SphincsvParams {
     // SPHINCS+ parameters
 
     pub const fn spx_skbytes(&self) -> usize {
-        4*self.n // 4 * SPX_N
+        4*self.spx_n // 4 * SPX_N
     }
 
     pub const fn spx_pkbytes(&self) -> usize {
-        2*self.n // 2 * SPX_N
+        2*self.spx_n // 2 * SPX_N
     }
 
-    pub const fn m(&self) -> usize {
-        ceil_div(self.k * self.a, 8)
-            + ceil_div(self.h - self.spx_h_prime(), 8)
+    pub const fn spx_m(&self) -> usize {
+        ceil_div(self.spx_k * self.spx_a, 8)
+            + ceil_div(self.spx_h - self.spx_h_prime(), 8)
             + ceil_div(self.spx_h_prime(), 8)
     }
 
     pub const fn spx_md_len(&self) -> usize {
-        (self.k * self.a + 7) / 8 // ceil((SPX_K * SPX_A) / 8)
+        (self.spx_k * self.spx_a + 7) / 8 // ceil((SPX_K * SPX_A) / 8)
     }
 
     pub const fn spx_idx_tree_len(&self) -> usize {
-        (self.h - self.spx_h_prime() + 7) / 8 // ceil((SPX_H - SPX_H_PRIME) / 8)
+        (self.spx_h - self.spx_h_prime() + 7) / 8 // ceil((SPX_H - SPX_H_PRIME) / 8)
     }
 
     pub const fn spx_idx_leaf_len(&self) -> usize {
@@ -78,17 +78,17 @@ impl SphincsvParams {
     // WOTS+ parameters
 
     pub const fn spx_w(&self) -> usize {
-        1 << self.lg_w // 2^SPX_LG_W
+        1 << self.spx_lg_w // 2^SPX_LG_W
     }
 
     pub const fn spx_len_1(&self) -> usize {
-        (8 * self.n + self.lg_w - 1) / self.lg_w // ceil(8*SPX_N / SPX_LG_W)
+        (8 * self.spx_n + self.spx_lg_w - 1) / self.spx_lg_w // ceil(8*SPX_N / SPX_LG_W)
     }
 
     pub const fn spx_len_2(&self) -> usize {
         // floor(log2(SPX_LEN_1 * (SPX_W - 1)) / SPX_LG_W) + 1
         let x = self.spx_len_1() * (self.spx_w() - 1);
-        floor_log2(x) / self.lg_w + 1
+        floor_log2(x) / self.spx_lg_w + 1
     }
 
     pub const fn spx_len(&self) -> usize {
@@ -98,7 +98,7 @@ impl SphincsvParams {
     // HT and XMSS parametes
 
     pub const fn spx_h_prime(&self) -> usize {
-        self.h / self.d // SPX_H / SPX_D
+        self.spx_h / self.spx_d // SPX_H / SPX_D
     }
 
     pub const fn xmss_tree_size(&self) -> usize {
@@ -108,39 +108,36 @@ impl SphincsvParams {
     // FORS parameters
 
     pub const fn spx_t(&self) -> usize {
-        1 << self.a // 2^SPX_A
+        1 << self.spx_a // 2^SPX_A
     }
 
     pub const fn fors_tree_size(&self) -> usize {
-        (1 << (self.a + 1)) - 1 // 2^(SPX_A+1)-1
+        (1 << (self.spx_a + 1)) - 1 // 2^(SPX_A+1)-1
     }
 
     // signature component byte lengths
 
     pub const fn wots_sig(&self) -> usize {
-        self.spx_len() * self.n // SPX_LEN * SPX_N
+        self.spx_len() * self.spx_n // SPX_LEN * SPX_N
     }
 
     pub const fn xmss_sig(&self) -> usize {
-        self.wots_sig() + self.spx_h_prime() * self.n // WOTS_SIG + SPX_H_PRIME*SPX_N
+        self.wots_sig() + self.spx_h_prime() * self.spx_n // WOTS_SIG + SPX_H_PRIME*SPX_N
     }
 
     pub const fn ht_sig(&self) -> usize {
-        self.d * self.xmss_sig() // SPX_D * XMSS_SIG
+        self.spx_d * self.xmss_sig() // SPX_D * XMSS_SIG
     }
 
     pub const fn fors_sig(&self) -> usize {
-        self.k * (1 + self.a) * self.n // SPX_K * (1 + SPX_A) * SPX_N
+        self.spx_k * (1 + self.spx_a) * self.spx_n // SPX_K * (1 + SPX_A) * SPX_N
     }
 
     pub const fn spx_sig(&self) -> usize {
-        self.n + self.fors_sig() + self.ht_sig() // SPX_N + FORS_SIG + HT_SIG
+        self.spx_n + self.fors_sig() + self.ht_sig() // SPX_N + FORS_SIG + HT_SIG
     }
     
 }
-
-// SPHINCS+ parameters
-pub const SPX_M: usize = 34; // ceil((SPX_K * SPX_A) / 8) + ceil((SPX_H - SPX_H_PRIME) / 8) + ceil((SPX_H_PRIME) / 8)
 
 // ADRS type field values
 pub mod adrs_type {
