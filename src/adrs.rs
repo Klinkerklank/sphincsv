@@ -108,7 +108,7 @@ pub mod adrs_type {
     pub const WOTS_PK: u32    = 1;
     pub const TREE: u32       = 2;
     pub const PORS_TREE: u32  = 3;
-    pub const PORS_ROOTS: u32 = 4;
+    // pub const PORS_ROOTS: u32 = 4; // not needed in PORS+FP
     pub const WOTS_PRF: u32   = 5;
     pub const PORS_PRF: u32   = 6;
 }

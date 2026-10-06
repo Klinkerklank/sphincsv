@@ -14,9 +14,10 @@
 use crate::adrs::Adrs;     // ADRS data structure
 use crate::params::PARAMS; // the SPHINCS+V parameters
 
-use sha2::{Digest, Sha256}; // use SHA-2 for the hashing functions
-use hmac::{Hmac, Mac};      // use the HMAC function for PRF_msg
-use hmac::digest::KeyInit;  // for HMAC key initialisation
+use sha2::{Digest, Sha256};    // use SHA-2 for the hashing functions
+use hmac::{Hmac, Mac};         // use the HMAC function for PRF_msg
+use hmac::digest::KeyInit;     // for HMAC key initialisation
+use std::collections::HashSet; // for sets instead of arrays
 
 // SHA2 parameters
 pub const SHA256_IN: usize  = 64;
@@ -216,7 +217,7 @@ pub fn h2(
     adrs: &Adrs,                  // ADRS
     md: &[u8; PARAMS.spx_n],      // message digest
     ctr: u32,                     // counter
-) -> [u32; PARAMS.spx_k] {
+) -> Vec<u32> { // -> set of k unique indices = 0..(t choose k)
 
     // hash input setup
     let adrsc: [u8; 22] = adrs.compress(); // compress ADRS to ADRS^c
@@ -225,17 +226,17 @@ pub fn h2(
     let mut hash = initialise_hash(pk_seed);
     
     // absorb all remaining inputs
-    hash.update(adrsc); // absorb ADRS^c
-    hash.update(md);    // absorb md
-    hash.update(ctr);   // absorb ctr
+    hash.update(adrsc);             // absorb ADRS^c
+    hash.update(md);                // absorb md
+    hash.update(ctr.to_be_bytes()); // absorb ctr
 
     // finalise the digest computation
     let digest = hash.finalize();
 
     // TODO how to map to (t choose k)?
-    let i: [u32; PARAMS.spx_k];
+    let indices: Vec<u32> = vec![0u32; PARAMS.spx_k];
 
-    i
+    indices
 }
 
 // T_len(PK.seed, ADRS, M_len) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_len))
