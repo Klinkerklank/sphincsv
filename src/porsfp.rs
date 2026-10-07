@@ -64,8 +64,9 @@ fn is_valid_leaf(
 fn make_valid_leaf(
     index: u32
 ) -> u32 { // -> valid horizontal index
-    // (last_leaf_idx + 2*(index - last_leaf_idx)) / 2
-    (((2*PARAMS.spx_t - (1<<PARAMS.spx_h_bar()) - 1) as u32) + 2*(index - ((2*PARAMS.spx_t - (1<<PARAMS.spx_h_bar()) - 1) as u32))) >> 1
+    let last_leaf_idx: u32 = (2*PARAMS.spx_t - (1<<PARAMS.spx_h_bar()) - 1) as u32;
+
+    (last_leaf_idx + 2*(index - last_leaf_idx)) >> 1
 }
 
 // turn a set of indices in the range 0..(t choose k) into the sets I and P for the Octopus algorithm,
@@ -108,68 +109,29 @@ fn octopus (
     
     let mut auth_nodes: Vec<(u32, u32)> = vec![]; // the list of authentication nodes from Octopus
 
+    // iterate over the layers bottom-up (root layer is layer 0)
+    for _ in 0..PARAMS.spx_h_bar()-1 {
+
+        for &node in &leaf_nodes { // iterate over a reference to I
+
+            // collect in P the parents of the nodes
+            prnt_nodes.insert(parent(node));
+
+            // collect in A the siblings of the nodes, if the siblings are not in I
+            let sibling: (u32, u32) = sibling(node);
+            if !leaf_nodes.contains(&sibling) {
+                auth_nodes.insert(sibling);
+            }
+
+        }
+
+        // for the next iteration, set I to P, and reset P to the empty set
+        leaf_nodes = prnt_nodes;
+        prnt_nodes = HashSet::new();
+    }
+
     auth_nodes
 }
-
-
-
-
-
-
-
-// // the Octopus algorithm, for efficiently computing what nodes need
-// // to be revealed in the authentication path of a PORS+FP signature
-// fn octopus(
-//     i_input: HashSet<u32>, // the set of leaf-layer authentication nodes
-// ) -> HashSet<u32> {
-
-//     let mut i: HashSet<u32> = HashSet::new(); // the set of nodes to authenticate
-//     let mut p: HashSet<u32> = HashSet::new(); // the set of parent nodes to authenticate
-//     let mut a: HashSet<u32> = HashSet::new(); // the set of authentication nodes
-    
-//     // 2t represents twice the total number of terminal nodes, while 2^{h_bar} is the 
-//     // total number of leaves in the corresponding perfect tree
-//     // since every internal node has exactly two children, the difference 2t-2^{h_bar}\) gives the number of nodes on the lowest layer.
-//     let leaf_layer_end_idx: u32 = (2*PARAMS.spx_t - (1 << PARAMS.spx_h_bar())) as u32;
-    
-//     // initialise I and P, which is to say:
-//     // I = the authentication nodes that are at the leaf layer (0),
-//     // P = the authentication nodes that are one layer above (1)
-//     // (because a PORS+FP tree is complete but not necessarily perfect)
-//     for node in i_input {
-
-//         if node < leaf_layer_end_idx {
-//             i.insert(node);
-//         } else {
-//             p.insert(node);
-//         }
-
-//     }
-
-//     // iterate over the layers bottom-up (root layer is layer 0)
-//     for _ in (0..PARAMS.spx_h_prime()-1).rev() {
-
-//         for &node in &i { // iterate over a reference to I
-
-//             // collect in P the parent of the node
-//             p.insert(par(node));
-
-//             // collect in A the sibling of the node, if the sibling is not in I
-//             let sibling: u32 = sib(node);
-//             if !i.contains(&sibling) {
-//                 a.insert(sibling);
-//             }
-
-//         }
-
-//         // for the next iteration, set I to P, and reset P to the empty set
-//         i = p;
-//         p = HashSet::new();
-//     }
-
-//     a
-
-// }
 
 //////////////////////// MAIN FUNCTIONS ////////////////////////
 
@@ -211,7 +173,7 @@ fn porsfp_node(
     mut adrs: Adrs,               // ADRS
 ) -> [u8; PARAMS.spx_n] { // PORS+FP secret key value
 
-
+    
 
     let trunc: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
 
@@ -237,6 +199,7 @@ fn porsfp_sign(
     let mut auth_nodes: Vec<(u32, u32)> = vec![]; // the list of authentication nodes from Octopus
 
     loop {
+
         // indices = (H_2(md || ctr))
         let indices: Vec<u32> = h2(pk_seed, adrs, md, ctr);
 
@@ -248,10 +211,11 @@ fn porsfp_sign(
 
         // check whether the size of A is small enough 
         if auth_nodes.len() <= PARAMS.spx_mmax {
-            break;
+            break; // counter value found that gives a small enough set of authentication nodes
         }
 
-        ctr += 1;
+        ctr += 1; // advance to the next counter value to try
+
     }
 
     // sig_pors = (ctr, {F_SK(i)}_i∈I, {y_i}_i∈A), initialised to all-zero
