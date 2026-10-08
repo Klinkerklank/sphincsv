@@ -14,10 +14,11 @@
 use crate::adrs::Adrs;     // ADRS data structure
 use crate::params::PARAMS; // the SPHINCS+V parameters
 
-use sha2::{Digest, Sha256};    // use SHA-2 for the hashing functions
-use hmac::{Hmac, Mac};         // use the HMAC function for PRF_msg
-use hmac::digest::KeyInit;     // for HMAC key initialisation
-use std::collections::HashSet; // for sets instead of arrays
+use hmac::{Hmac, Mac};     // use the HMAC function for PRF_msg
+use hmac::digest::KeyInit; // for HMAC key initialisation
+
+use sha2::{Sha256, Digest as Sha256Digest}; // use SHA-2 for the hashing functions
+use shake::{Shake256, Update as Shake256Update, ExtendableOutput, XofReader}; // use SHAKE for H_2
 
 // SHA2 parameters
 pub const SHA256_IN: usize  = 64;
@@ -32,10 +33,10 @@ fn initialise_hash(
     let zero_padding: [u8; SHA256_IN-PARAMS.spx_n] = [0u8; SHA256_IN-PARAMS.spx_n];
 
     // initialise the SHA-2 state
-    let mut hash = Sha256::new();
+    let mut hash: Sha256 = Sha256::new();
 
-    hash.update(pk_seed);      // absorb PK.seed
-    hash.update(zero_padding); // absorb the zero padding
+    Sha256Digest::update(&mut hash, pk_seed);      // absorb PK.seed
+    Sha256Digest::update(&mut hash, zero_padding); // absorb the zero padding
 
     hash
 }
@@ -50,16 +51,16 @@ pub fn h_msg(
 ) -> [u8; PARAMS.spx_m()] {
 
     // initialise the SHA-2 state
-    let mut hash = Sha256::new();
+    let mut hash: Sha256 = Sha256::new();
 
     // absorb all inputs for the inner hash
-    hash.update(r);                     // absorb the message randomiser
-    hash.update(pk_seed);               // absorb PK.seed
-    hash.update(pk_root);               // absorb PK.root
-    hash.update([0u8]);                 // absorb domain separator byte
-    hash.update([context.len() as u8]); // absorb the context length
-    hash.update(context);               // absorb the context string
-    hash.update(message);               // absorb the message to be signed
+    Sha256Digest::update(&mut hash, r);                     // absorb the message randomiser
+    Sha256Digest::update(&mut hash, pk_seed);               // absorb PK.seed
+    Sha256Digest::update(&mut hash, pk_root);               // absorb PK.root
+    Sha256Digest::update(&mut hash, [0u8]);                 // absorb domain separator byte
+    Sha256Digest::update(&mut hash, [context.len() as u8]); // absorb the context length
+    Sha256Digest::update(&mut hash, context);               // absorb the context string
+    Sha256Digest::update(&mut hash, message);               // absorb the message to be signed
 
     let digest = hash.finalize(); // finalise the digest
 
@@ -83,7 +84,7 @@ pub fn h_msg(
 
         let mut hash = Sha256::new(); // initialise the SHA-2 state
 
-        hash.update(&seed); // absorb the entire seed buffer
+        Sha256Digest::update(&mut hash, &seed); // absorb the entire seed buffer
 
         let digest = hash.finalize(); // finalise the digest
 
@@ -108,13 +109,13 @@ pub fn prf_msg(
     type HmacSha256 = Hmac<Sha256>;
 
     // initialise the HMAC with SK.prf as key
-    let mut mac = HmacSha256::new_from_slice(sk_prf).expect("Invalid HMAC key length");
+    let mut mac: Hmac<Sha256> = HmacSha256::new_from_slice(sk_prf).expect("Invalid HMAC key length");
 
-    mac.update(optrand);                // absorb additional randomness
-    mac.update(&[0u8]);                 // absorb the domain separator byte
-    mac.update(&[context.len() as u8]); // absorb context length
-    mac.update(context);                // absorb context string
-    mac.update(message);                // absorb message to be signed
+    Mac::update(&mut mac, optrand);                // absorb additional randomness
+    Mac::update(&mut mac, &[0u8]);                 // absorb the domain separator byte
+    Mac::update(&mut mac, &[context.len() as u8]); // absorb context length
+    Mac::update(&mut mac, context);                // absorb context string
+    Mac::update(&mut mac, message);                // absorb message to be signed
 
     let hmac = mac.finalize().into_bytes(); // finalise the digest
 
@@ -136,11 +137,11 @@ pub fn prf(
     let adrsc: [u8; 22] = adrs.compress(); // compress ADRS to ADRS^c
     
     // process the first block of input
-    let mut hash = initialise_hash(pk_seed);
+    let mut hash: Sha256 = initialise_hash(pk_seed);
     
     // absorb all remaining inputs
-    hash.update(adrsc);   // absorb ADRS^c
-    hash.update(sk_seed); // absorb SK.seed
+    Sha256Digest::update(&mut hash, adrsc);   // absorb ADRS^c
+    Sha256Digest::update(&mut hash, sk_seed); // absorb SK.seed
 
     // finalise the digest computation
     let digest = hash.finalize();
@@ -164,11 +165,11 @@ pub fn f(
     let adrsc: [u8; 22] = adrs.compress(); // compress ADRS to ADRS^c
     
     // process the first block of input
-    let mut hash = initialise_hash(pk_seed);
+    let mut hash: Sha256 = initialise_hash(pk_seed);
     
     // absorb all remaining inputs
-    hash.update(adrsc); // absorb ADRS^c
-    hash.update(m);     // absorb M1
+    Sha256Digest::update(&mut hash, adrsc); // absorb ADRS^c
+    Sha256Digest::update(&mut hash, m);     // absorb M1
 
     // finalise the digest computation
     let digest = hash.finalize();
@@ -193,12 +194,12 @@ pub fn h(
     let adrsc: [u8; 22] = adrs.compress(); // compress ADRS to ADRS^c
     
     // process the first block of input
-    let mut hash = initialise_hash(pk_seed);
+    let mut hash: Sha256 = initialise_hash(pk_seed);
     
     // absorb all remaining inputs
-    hash.update(adrsc); // absorb ADRS^c
-    hash.update(m1);    // absorb M1
-    hash.update(m2);    // absorb M2
+    Sha256Digest::update(&mut hash, adrsc); // absorb ADRS^c
+    Sha256Digest::update(&mut hash, m1);    // absorb M1
+    Sha256Digest::update(&mut hash, m2);    // absorb M2
 
     // finalise the digest computation
     let digest = hash.finalize();
@@ -217,24 +218,50 @@ pub fn h2(
     adrs: &Adrs,                  // ADRS
     md: &[u8; PARAMS.spx_n],      // message digest
     ctr: u32,                     // counter
-) -> Vec<u32> { // -> set of k unique indices = 0..(t choose k)
+) -> Vec<u32> { // -> set of k indices = 0..(t choose k)
 
     // hash input setup
     let adrsc: [u8; 22] = adrs.compress(); // compress ADRS to ADRS^c
-    
-    // process the first block of input
-    let mut hash = initialise_hash(pk_seed);
+
+    // initialise SHAKE-256
+    let mut hash = Shake256::default();
     
     // absorb all remaining inputs
-    hash.update(adrsc);             // absorb ADRS^c
-    hash.update(md);                // absorb md
-    hash.update(ctr.to_be_bytes()); // absorb ctr
+    Shake256Update::update(&mut hash, pk_seed);            // absorb PK.seed
+    Shake256Update::update(&mut hash, &adrsc);             // absorb ADRS^c
+    Shake256Update::update(&mut hash, md);                 // absorb md
+    Shake256Update::update(&mut hash, &ctr.to_be_bytes()); // absorb ctr
 
-    // finalise the digest computation
-    let digest = hash.finalize();
+    // finalise SHAKE and get an XOF reader
+    let mut reader = hash.finalize_xof();
 
-    // TODO how to map to (t choose k)?
-    let indices: Vec<u32> = vec![0u32; PARAMS.spx_k];
+    // map the output to spx_k unique indices in 0..spx_t (= [t] choose k)
+    let mut indices: Vec<u32> = Vec::with_capacity(PARAMS.spx_k);
+
+    // largest multiple of spx_t that fits in u32
+    let limit: u32 = u32::MAX - (u32::MAX % (PARAMS.spx_t as u32));
+
+    // keep deterministically generating indices from the output stream until there are enough unique indices
+    while indices.len() < PARAMS.spx_k {
+
+        // read four bytes of output
+        let mut buf = [0u8; 4];
+        reader.read(&mut buf);
+
+        // interpret them as a big-endian u32.
+        let x: u32 = u32::from_be_bytes(buf);
+
+        // reject values that would introduce modulo bias
+        if x >= limit { continue; }
+
+        // compute the resulting index
+        let index: u32 = x % (PARAMS.spx_t as u32);
+
+        // only add the index if it is not already present
+        if !indices.contains(&index) {
+            indices.push(index);
+        }
+    }
 
     indices
 }
@@ -253,8 +280,8 @@ pub fn t_len(
     let mut hash = initialise_hash(pk_seed);
     
     // absorb all remaining inputs
-    hash.update(adrsc);  // absorb ADRS^c
-    hash.update(chains); // absorb all chain values
+    Sha256Digest::update(&mut hash, adrsc);  // absorb ADRS^c
+    Sha256Digest::update(&mut hash, chains); // absorb all chain values
 
     // finalise the digest computation
     let digest = hash.finalize();

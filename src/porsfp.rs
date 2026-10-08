@@ -235,6 +235,7 @@ fn porsfp_node(
                 let mut rnode: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
                 rnode.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]);
 
+                // compute the relevant ADRS
                 let kpa: u32 = adrs.get_key_pair_addr(); // save the key pair address of this PORS+FP instance
                 adrs.set_type_and_clear(adrs_type::PORS_TREE); // set the correct type for computing PORS+FP internal nodes
                 adrs.set_key_pair_addr(kpa); // set the stored key pair address
@@ -404,9 +405,53 @@ fn porsfp_pkfromsig(
 
     }
 
-    // compute the PORS+FP tree root from the partially-fillled tree
+    // compute the PORS+FP tree root from the partially-filled tree
     // (which now contains all signature leaves and authentication nodes)
-    
+
+    for z in 0..PARAMS.spx_h_bar() { // vertically iterate over the layers
+
+        for i in 0..(1 << (PARAMS.spx_h_bar()-z)) { // horizontally iterate over all nodes in the current layer
+
+            // compute the index of node (i, z) in the flattened tree
+            let idx: usize = flat_tree_idx((i, z as u32));
+
+            // if (i, z) is populated, compute its parent
+            if populated[idx] {
+
+                // get the left child (which is the node (i, z))
+                let idx_offset: usize = idx * PARAMS.spx_n;
+                let mut lnode: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
+                lnode.copy_from_slice(&flat_tree[idx_offset..idx_offset+PARAMS.spx_n]);
+
+                // get the right child
+                let idx_offset: usize = flat_tree_idx(sibling((i, z as u32))) * PARAMS.spx_n;
+                let mut rnode: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
+                rnode.copy_from_slice(&flat_tree[idx_offset..idx_offset+PARAMS.spx_n]);
+
+                // get the parent's coordinates
+                let (i_parent, z_parent): (u32, u32) = parent((i, z as u32));
+
+                // compute the relevant ADRS
+                let kpa: u32 = adrs.get_key_pair_addr(); // save the key pair address of this PORS+FP instance
+                adrs.set_type_and_clear(adrs_type::PORS_TREE); // set the correct type for computing PORS+FP internal nodes
+                adrs.set_key_pair_addr(kpa); // set the stored key pair address
+                adrs.set_tree_index(i_parent); // set the tree index
+                adrs.set_tree_height(z_parent); // set the tree height
+
+                // compute node = H(PK.seed, ADRS, lnode, rnode)
+                let node: [u8; PARAMS.spx_n] = h(pk_seed, &adrs, &lnode, &rnode);
+
+                // compute the byte offset of node (i, z) in the flattened tree
+                let idx_offset: usize = flat_tree_idx((i_parent, z_parent)) * PARAMS.spx_n;
+
+                // set the internal node in the flattened tree
+                flat_tree[idx_offset..idx_offset+PARAMS.spx_n].copy_from_slice(&node);
+
+            }
+
+        }
+
+    }
 
     // get the root of the subtree at (i_target, z_target)
     let idx_flat: usize = flat_tree_idx((0u32, PARAMS.spx_h_bar() as u32)) * PARAMS.spx_n; // compute the byte offset of the root of the flattened tree
