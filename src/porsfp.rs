@@ -14,7 +14,7 @@
 use crate::params::PARAMS;  // the SPHINCS+V parameters
 use crate::adrs::Adrs;      // ADRS data structure
 use crate::adrs::adrs_type; // ADRS type constants  
-use crate::tweakable_hashes::{prf, f, h2}; // hash function instantiations
+use crate::tweakable_hashes::{prf, f, h, h2}; // hash function instantiations
 
 use std::vec::Vec; // for using lists of coordinate pairs
 
@@ -22,34 +22,48 @@ use std::vec::Vec; // for using lists of coordinate pairs
 
 // compute the parent's coordinates from a given node's (i,z) coordinates
 fn parent(
-    i: u32, // horizontal index of the node in the PORS+FP tree
-    z: u32, // height of the node in the PORS+FP tree
+    // i = horizontal index of the node in the PORS+FP tree
+    // z = height of the node in the PORS+FP tree
+    (i, z): (u32, u32), // node
 ) -> (u32, u32) {
     (i>>1, z+1)
 }
 
 // compute the left child's coordinates from a given node's (i,z) coordinates
 fn lchild(
-    i: u32, // horizontal index of the node in the PORS+FP tree
-    z: u32, // height of the node in the PORS+FP tree
+    // i = horizontal index of the node in the PORS+FP tree
+    // z = height of the node in the PORS+FP tree
+    (i, z): (u32, u32), // node
 ) -> (u32, u32) {
     (2*i, z-1)
 }
 
 // compute the right child's coordinates from a given node's (i,z) coordinates
 fn rchild(
-    i: u32, // horizontal index of the node in the PORS+FP tree
-    z: u32, // height of the node in the PORS+FP tree
+    // i = horizontal index of the node in the PORS+FP tree
+    // z = height of the node in the PORS+FP tree
+    (i, z): (u32, u32), // node
 ) -> (u32, u32) {
     (2*i+1, z-1)
 }
 
 // compute the sibling's coordinates from a given node's (i,z) coordinates
 fn sibling(
-    i: u32, // horizontal index of the node in the PORS+FP tree
-    z: u32, // height of the node in the PORS+FP tree
+    // i = horizontal index of the node in the PORS+FP tree
+    // z = height of the node in the PORS+FP tree
+    (i, z): (u32, u32), // node
 ) -> (u32, u32) {
     (i^1, z)
+}
+
+// compute the byte offset of an spx_n-byte value in the flattened tree
+fn flat_tree_idx(
+    // i = horizontal index of the node in the PORS+FP tree
+    // z = height of the node in the PORS+FP tree
+    (i, z): (u32, u32), // node
+) -> usize {
+    // flat_tree_idx = 2^(h'+1) - 2^(h'+1-z) + i
+    ((1 << (PARAMS.spx_h_bar() + 1)) - (1 << (PARAMS.spx_h_bar() + 1 - (z as usize))) + i) as usize
 }
 
 // check whether a given leaf index is valid in the force-pruned PORS tree
@@ -103,10 +117,12 @@ fn init_octopus(
 // compute for the given lists of leaves (I) and parent nodes (P), the list of authentication nodes (A),
 // i.e. compute A = octopus(I, P) according to the description in [AK25]
 fn octopus (
-    leaf_nodes: &Vec<(u32, u32)>, // the list of leaf nodes for Octopus (I)
-    prnt_nodes: &Vec<(u32, u32)>, // the list of parent nodes for Octopus (P)
+    leaf_nodes: &[(u32, u32)], // the list of leaf nodes for Octopus (I)
+    prnt_nodes: &[(u32, u32)], // the list of parent nodes for Octopus (P)
 ) -> Vec<(u32, u32)> { // -> the list of authentication nodes from Octopus (A)
     
+    let mut leaf_nodes: Vec<(u32, u32)> = leaf_nodes.to_vec(); // duplicate (the reference to) I
+    let mut prnt_nodes: Vec<(u32, u32)> = prnt_nodes.to_vec(); // duplicate (the reference to) P
     let mut auth_nodes: Vec<(u32, u32)> = vec![]; // the list of authentication nodes from Octopus
 
     // iterate over the layers bottom-up (root layer is layer 0)
@@ -115,19 +131,19 @@ fn octopus (
         for &node in &leaf_nodes { // iterate over a reference to I
 
             // collect in P the parents of the nodes
-            prnt_nodes.insert(parent(node));
+            prnt_nodes.push(parent(node));
 
             // collect in A the siblings of the nodes, if the siblings are not in I
             let sibling: (u32, u32) = sibling(node);
             if !leaf_nodes.contains(&sibling) {
-                auth_nodes.insert(sibling);
+                auth_nodes.push(sibling);
             }
 
         }
 
         // for the next iteration, set I to P, and reset P to the empty set
         leaf_nodes = prnt_nodes;
-        prnt_nodes = HashSet::new();
+        prnt_nodes = vec![];
     }
 
     auth_nodes
@@ -148,14 +164,11 @@ fn porsfp_skgen(
     z: u32,                       // node's height
 ) -> [u8; PARAMS.spx_n] { // PORS+FP secret key value
 
-    // set the tree index
-    adrs.set_tree_index(i);
-
-    // set the tree height
-    adrs.set_tree_height(z);
+    adrs.set_tree_index(i); // set the tree index
+    adrs.set_tree_height(z); // set the tree height
 
     // compute PRF(PK.seed, SK.seed, ADRS)
-    let sk = prf(&pk_seed, &sk_seed, &adrs);
+    let sk: [u8; PARAMS.spx_n] = prf(&pk_seed, &sk_seed, &adrs);
 
     sk
 }
@@ -167,17 +180,87 @@ fn porsfp_skgen(
 +-------------------------------------------------------------*/
 fn porsfp_node(
     sk_seed: &[u8; PARAMS.spx_n], // SK.seed
-    i: u32,                       // node's horizontal index
-    z: u32,                       // node's height
+    i_target: u32,                // node's horizontal index
+    z_target: u32,                // node's height
     pk_seed: &[u8; PARAMS.spx_n], // PK.seed
     mut adrs: Adrs,               // ADRS
 ) -> [u8; PARAMS.spx_n] { // PORS+FP secret key value
 
-    
+    let mut flat_tree: [u8; PARAMS.pors_tree_size() * PARAMS.spx_n] = [0u8; PARAMS.pors_tree_size() * PARAMS.spx_n]; // flattened PORS+FP tree
 
-    let trunc: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
+    for z in 0..z_target {
 
-    trunc
+        let i_start: u32 =  i_target      * (1 << (z_target-z)); //  i_target      * 2^(z_target-z)
+        let i_end: u32   = (i_target + 1) * (1 << (z_target-z)); // (i_target + 1) * 2^(z_target-z)
+
+        for i in i_start..i_end {
+
+            // check whether (i, z) is a PORS+FP leaf
+            let mut leaf: bool = false;
+            if (z == 0) & (is_valid_leaf(i)) { // first-layer leaf
+                leaf = true;
+            } else if (z == 1) & (!is_valid_leaf(lchild((i,z)).0)) { // second-layer leaf (as its left child is not a valid first-layer leaf)
+                leaf = true;
+            }
+
+            if leaf { // node is a PORS+FP leaf
+
+                // do the ADRS setup for a PORS+FP leaf
+                let kpa: u32 = adrs.get_key_pair_addr(); // save the key pair address of this PORS+FP instance
+                adrs.set_type_and_clear(adrs_type::PORS_PRF); // set the correct type for computing PORS+FP secret keys
+                adrs.set_key_pair_addr(kpa); // set the stored key pair address
+
+                // compute the secret key
+                let sk: [u8; PARAMS.spx_n] = porsfp_skgen(sk_seed, pk_seed, adrs, i, z);
+
+                // compute the hash of the secret key
+                let node: [u8; PARAMS.spx_n] = f(pk_seed, &adrs, &sk);
+
+                // compute the byte offset of node (i, z) in the flattened tree
+                let idx: usize = flat_tree_idx((i, z));
+
+                // set the hashed secret key in the flattened tree
+                flat_tree[idx..idx+PARAMS.spx_n].copy_from_slice(&node);
+
+            } else { // node is an internal PORS+FP node
+
+                // get the left child
+                let idx: usize = flat_tree_idx(lchild((i, z)));
+                let mut lnode: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
+                lnode.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]);
+
+                // get the right child
+                let idx: usize = flat_tree_idx(rchild((i, z)));
+                let mut rnode: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
+                rnode.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]);
+
+                let kpa: u32 = adrs.get_key_pair_addr(); // save the key pair address of this PORS+FP instance
+                adrs.set_type_and_clear(adrs_type::PORS_TREE); // set the correct type for computing PORS+FP internal nodes
+                adrs.set_key_pair_addr(kpa); // set the stored key pair address
+                adrs.set_tree_index(i); // set the tree index
+                adrs.set_tree_height(z); // set the tree height
+
+                // compute node = H(PK.seed, ADRS, lnode, rnode)
+                let node: [u8; PARAMS.spx_n] = h(pk_seed, &adrs, &lnode, &rnode);
+
+                // compute the byte offset of node (i, z) in the flattened tree
+                let idx: usize = flat_tree_idx((i, z));
+
+                // set the internal node in the flattened tree
+                flat_tree[idx..idx+PARAMS.spx_n].copy_from_slice(&node);
+
+            }
+
+        }
+
+    }
+
+    // get the root of the subtree at (i_target, z_target)
+    let idx: usize = flat_tree_idx((i_target, z_target)); // compute the byte offset of node (i_target, z_target) in the flattened tree
+    let mut node: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n]; // declare the root value array
+    node.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]); // copy the root from the flattened tree
+
+    node
 }
 
 /*-------------------------------------------------------------+
@@ -227,9 +310,9 @@ fn porsfp_sign(
     let mut idx: usize = 4; // byte index in sig_pors
 
     // do the ADRS setup for the PORS+FP leaves (which is the same for every leaf)
-    let kpa: u32 = adrs.get_key_pair_addr();                // save the key pair address of this PORS+FP instance
+    let kpa: u32 = adrs.get_key_pair_addr(); // save the key pair address of this PORS+FP instance
     adrs.set_type_and_clear(adrs_type::PORS_PRF); // set the correct type for computing PORS+FP secret keys
-    adrs.set_key_pair_addr(kpa);                            // set the stored key pair address
+    adrs.set_key_pair_addr(kpa); // set the stored key pair address
 
     // store the PORS+FP leaves, one at a time
     for (i, z) in leaf_nodes {

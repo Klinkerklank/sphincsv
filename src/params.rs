@@ -33,7 +33,7 @@ pub struct SphincsvParams {
 
     // HT and XMSS
     pub spx_h: usize, // total hypertree height
-    pub spx_d: usize, // Number of layers of XMSS trees in the hypertree
+    pub spx_d: usize, // number of layers of XMSS trees in the hypertree
 
     // PORS+FP
     pub spx_mmax: usize, // maximum number of PORS+FP secret key values in a signature
@@ -121,9 +121,10 @@ impl SphincsvParams {
 
     // height of the PORS+FP tree
     pub const fn spx_h_bar(&self) -> usize {
-        ceil_log2(spx_t) // ceil(log_2(SPX_T))
+        ceil_log2(self.spx_t) // ceil(log_2(SPX_T))
     }
 
+    // number of nodes in a PORS tree (without the forced pruning)
     pub const fn pors_tree_size(&self) -> usize {
         1 << self.spx_h_bar() // 2^(ceil(log_2(SPX_T)))
     }
