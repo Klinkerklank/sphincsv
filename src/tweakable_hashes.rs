@@ -245,7 +245,7 @@ pub fn h2(
     while indices.len() < PARAMS.spx_k {
 
         // read four bytes of output
-        let mut buf = [0u8; 4];
+        let mut buf: [u8; 4] = [0u8; 4];
         reader.read(&mut buf);
 
         // interpret them as a big-endian u32.
@@ -277,7 +277,7 @@ pub fn t_len(
     let adrsc: [u8; 22] = adrs.compress(); // compress ADRS to ADRS^c
     
     // process the first block of input
-    let mut hash = initialise_hash(pk_seed);
+    let mut hash: Sha256 = initialise_hash(pk_seed);
     
     // absorb all remaining inputs
     Sha256Digest::update(&mut hash, adrsc);  // absorb ADRS^c
