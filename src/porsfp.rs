@@ -186,7 +186,8 @@ fn porsfp_node(
     mut adrs: Adrs,               // ADRS
 ) -> [u8; PARAMS.spx_n] { // PORS+FP secret key value
 
-    let mut flat_tree: [u8; PARAMS.pors_tree_size() * PARAMS.spx_n] = [0u8; PARAMS.pors_tree_size() * PARAMS.spx_n]; // flattened PORS+FP tree
+    // flattened PORS+FP tree
+    let mut flat_tree: [u8; PARAMS.pors_tree_size() * PARAMS.spx_n] = [0u8; PARAMS.pors_tree_size() * PARAMS.spx_n];
 
     for z in 0..z_target {
 
@@ -217,7 +218,7 @@ fn porsfp_node(
                 let node: [u8; PARAMS.spx_n] = f(pk_seed, &adrs, &sk);
 
                 // compute the byte offset of node (i, z) in the flattened tree
-                let idx: usize = flat_tree_idx((i, z));
+                let idx: usize = flat_tree_idx((i, z)) * PARAMS.spx_n;
 
                 // set the hashed secret key in the flattened tree
                 flat_tree[idx..idx+PARAMS.spx_n].copy_from_slice(&node);
@@ -225,12 +226,12 @@ fn porsfp_node(
             } else { // node is an internal PORS+FP node
 
                 // get the left child
-                let idx: usize = flat_tree_idx(lchild((i, z)));
+                let idx: usize = flat_tree_idx(lchild((i, z))) * PARAMS.spx_n;
                 let mut lnode: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
                 lnode.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]);
 
                 // get the right child
-                let idx: usize = flat_tree_idx(rchild((i, z)));
+                let idx: usize = flat_tree_idx(rchild((i, z))) * PARAMS.spx_n;
                 let mut rnode: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
                 rnode.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]);
 
@@ -244,7 +245,7 @@ fn porsfp_node(
                 let node: [u8; PARAMS.spx_n] = h(pk_seed, &adrs, &lnode, &rnode);
 
                 // compute the byte offset of node (i, z) in the flattened tree
-                let idx: usize = flat_tree_idx((i, z));
+                let idx: usize = flat_tree_idx((i, z)) * PARAMS.spx_n;
 
                 // set the internal node in the flattened tree
                 flat_tree[idx..idx+PARAMS.spx_n].copy_from_slice(&node);
@@ -256,7 +257,7 @@ fn porsfp_node(
     }
 
     // get the root of the subtree at (i_target, z_target)
-    let idx: usize = flat_tree_idx((i_target, z_target)); // compute the byte offset of node (i_target, z_target) in the flattened tree
+    let idx: usize = flat_tree_idx((i_target, z_target)) * PARAMS.spx_n; // compute the byte offset of node (i_target, z_target) in the flattened tree
     let mut node: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n]; // declare the root value array
     node.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]); // copy the root from the flattened tree
 
@@ -273,13 +274,13 @@ fn porsfp_sign(
     sk_seed: &[u8; PARAMS.spx_n], // SK.seed
     pk_seed: &[u8; PARAMS.spx_n], // PK.seed
     adrs: &mut Adrs,              // ADRS
-) -> [u8; PARAMS.pors_sig()] { // PORS+FP signature
+) -> [u8; PARAMS.porsfp_sig()] { // PORS+FP signature
 
     let mut ctr: u32 = 0; // incrementing counter for leaf-set computing
 
-    let mut leaf_nodes: Vec<(u32, u32)> = vec![]; // the list of leaf nodes for Octopus
-    let mut prnt_nodes: Vec<(u32, u32)> = vec![]; // the list of parent nodes for Octopus
-    let mut auth_nodes: Vec<(u32, u32)> = vec![]; // the list of authentication nodes from Octopus
+    let mut leaf_nodes: Vec<(u32, u32)> = vec![]; // the list of leaf nodes (I) for Octopus
+    let mut prnt_nodes: Vec<(u32, u32)> = vec![]; // the list of parent nodes (P) for Octopus
+    let mut auth_nodes: Vec<(u32, u32)> = vec![]; // the list of authentication nodes (A) from Octopus
 
     loop {
 
@@ -301,13 +302,13 @@ fn porsfp_sign(
 
     }
 
-    // sig_pors = (ctr, {F_SK(i)}_i∈I, {y_i}_i∈A), initialised to all-zero
-    let mut sig_pors: [u8; PARAMS.pors_sig()] = [0u8; PARAMS.pors_sig()];
+    // sig_porsfp = (ctr, {F_SK(i)}_i∈I, {y_i}_i∈A), initialised to all-zero
+    let mut sig_porsfp: [u8; PARAMS.porsfp_sig()] = [0u8; PARAMS.porsfp_sig()];
 
     // set the counter
-    sig_pors[0..4].copy_from_slice(&ctr.to_be_bytes());
+    sig_porsfp[0..4].copy_from_slice(&ctr.to_be_bytes());
 
-    let mut idx: usize = 4; // byte index in sig_pors
+    let mut idx: usize = 4; // byte index in sig_porsfp
 
     // do the ADRS setup for the PORS+FP leaves (which is the same for every leaf)
     let kpa: u32 = adrs.get_key_pair_addr(); // save the key pair address of this PORS+FP instance
@@ -324,7 +325,7 @@ fn porsfp_sign(
         let node: [u8; PARAMS.spx_n] = f(pk_seed, adrs, &sk);
 
         // set the hashed secret key in the signature
-        sig_pors[idx..idx+PARAMS.spx_n].copy_from_slice(&node);
+        sig_porsfp[idx..idx+PARAMS.spx_n].copy_from_slice(&node);
 
         idx += PARAMS.spx_n; // one leaf has been set
 
@@ -338,11 +339,79 @@ fn porsfp_sign(
         let node: [u8; PARAMS.spx_n] = porsfp_node(sk_seed, i, z, pk_seed, *adrs);
 
         // set the authentication node value in the signature
-        sig_pors[idx..idx+PARAMS.spx_n].copy_from_slice(&node);
+        sig_porsfp[idx..idx+PARAMS.spx_n].copy_from_slice(&node);
 
         idx += PARAMS.spx_n; // one authentication node has been set
 
     }
 
-    sig_pors
+    // set any unneeded authentication node spots to all-zero
+    while idx < PARAMS.porsfp_sig() {
+        let node: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
+        sig_porsfp[idx..idx+PARAMS.spx_n].copy_from_slice(&node);
+        idx += PARAMS.spx_n;
+    }
+
+    sig_porsfp
+}
+
+/*-------------------------------------------------------------+
+| ALGORITHM 17 FROM SLH-DSS (FIPS 205) adapted for             |
+| ALGORITHM 3 FROM [AK25].                                     |
+| Computes a PORS+FP root from a signature.                    |
++-------------------------------------------------------------*/
+fn porsfp_pkfromsig(
+    sig_porsfp: [u8; PARAMS.porsfp_sig()], // PORS+FP signature
+    md: &[u8; PARAMS.spx_n],               // message digest
+    pk_seed: &[u8; PARAMS.spx_n],          // PK.seed
+    adrs: &mut Adrs,                       // ADRS
+) -> [u8; PARAMS.spx_n] { // PORS+FP signature
+
+    // extract the counter value from the signature
+    let ctr_bytes: [u8; 4] = sig_porsfp[0..4].try_into().unwrap();
+    let ctr: u32 = u32::from_be_bytes(ctr_bytes);
+
+    let mut leaf_nodes: Vec<(u32, u32)> = vec![]; // the list of leaf nodes (I) for Octopus
+    let mut prnt_nodes: Vec<(u32, u32)> = vec![]; // the list of parent nodes (P) for Octopus
+    let mut auth_nodes: Vec<(u32, u32)> = vec![]; // the list of authentication nodes (A) from Octopus
+
+    // indices = (H_2(md || ctr))
+    let indices: Vec<u32> = h2(pk_seed, adrs, md, ctr);
+
+    // convert indices to the two lists I and P
+    (leaf_nodes, prnt_nodes) = init_octopus(indices);
+
+    // A = octopus(I, P)
+    auth_nodes = octopus(&leaf_nodes, &prnt_nodes);
+
+    // flattened PORS+FP tree
+    let mut flat_tree: [u8; PARAMS.pors_tree_size() * PARAMS.spx_n] = [0u8; PARAMS.pors_tree_size() * PARAMS.spx_n];
+    let mut populated: [bool; PARAMS.pors_tree_size()] = [false; PARAMS.pors_tree_size()];
+
+    // extract the first-layer leaves, second-layer leaves, and authentication nodes from the signature
+    let mut idx_sig: usize = 4; // byte index in sig_porsfp
+    for (i, z) in (leaf_nodes.iter()).chain(prnt_nodes.iter()).chain(auth_nodes.iter()) {
+
+        // compute the byte offset of node (i, z) in the flattened tree
+        let idx: usize = flat_tree_idx((*i, *z));
+        let idx_flat: usize = idx * PARAMS.spx_n;
+
+        // set the node in the flattened tree, and set its node position to populated
+        flat_tree[idx_flat..idx_flat+PARAMS.spx_n].copy_from_slice(&sig_porsfp[idx_sig..idx_sig+PARAMS.spx_n]);
+        populated[idx] = true;
+
+        idx_sig += PARAMS.spx_n; // one node has been set
+
+    }
+
+    // compute the PORS+FP tree root from the partially-fillled tree
+    // (which now contains all signature leaves and authentication nodes)
+    
+
+    // get the root of the subtree at (i_target, z_target)
+    let idx_flat: usize = flat_tree_idx((0u32, PARAMS.spx_h_bar() as u32)) * PARAMS.spx_n; // compute the byte offset of the root of the flattened tree
+    let mut root: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n]; // declare the root value array
+    root.copy_from_slice(&flat_tree[idx_flat..idx_flat+PARAMS.spx_n]); // copy the root from the flattened tree
+
+    root
 }

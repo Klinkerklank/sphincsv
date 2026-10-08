@@ -143,12 +143,12 @@ impl SphincsvParams {
         self.spx_d * self.xmss_sig() // SPX_D * XMSS_SIG
     }
 
-    pub const fn pors_sig(&self) -> usize {
+    pub const fn porsfp_sig(&self) -> usize {
         4 + self.spx_n*self.spx_k + self.spx_mmax*self.spx_n // u32 + (SPX_K*SPX_N) + (SPX_M_MAX*SPX_N)
     }
 
     pub const fn spx_sig(&self) -> usize {
-        self.spx_n + self.pors_sig() + self.ht_sig() // SPX_N + PORS_SIG + HT_SIG
+        self.spx_n + self.porsfp_sig() + self.ht_sig() // SPX_N + PORS_SIG + HT_SIG
     }
     
 }
