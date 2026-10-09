@@ -124,7 +124,7 @@ impl SphincsvParams {
 
     // number of nodes in a PORS tree (without the forced pruning)
     pub const fn pors_tree_size(&self) -> usize {
-        1 << self.spx_h_bar() // 2^(ceil(log_2(SPX_T)))
+        (1 << (self.spx_h_bar() + 1)) - 1 // 2^(spx_h_bar+1)-1
     }
 
     // signature component byte lengths

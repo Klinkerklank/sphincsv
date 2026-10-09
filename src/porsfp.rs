@@ -26,6 +26,8 @@ fn parent(
     // z = height of the node in the PORS+FP tree
     (i, z): (u32, u32), // node
 ) -> (u32, u32) {
+    assert!(z < PARAMS.spx_h_bar() as u32, "\x1b[1;91mCannot get parent of the PORS+FP tree root ({}, {})\x1b[0m", i, z);
+
     (i>>1, z+1)
 }
 
@@ -35,7 +37,9 @@ fn lchild(
     // z = height of the node in the PORS+FP tree
     (i, z): (u32, u32), // node
 ) -> (u32, u32) {
-    (2*i, z-1)
+    assert!(z > 0, "\x1b[1;91mCannot get left child of node ({}, {}) with z=0\x1b[0m", i, z);
+
+    (i<<1, z-1)
 }
 
 // compute the right child's coordinates from a given node's (i,z) coordinates
@@ -44,7 +48,9 @@ fn rchild(
     // z = height of the node in the PORS+FP tree
     (i, z): (u32, u32), // node
 ) -> (u32, u32) {
-    (2*i+1, z-1)
+    assert!(z > 0, "\x1b[1;91mCannot get right child of a node with z=0\x1b[0m");
+
+    ((i<<1)+1, z-1)
 }
 
 // compute the sibling's coordinates from a given node's (i,z) coordinates
@@ -66,14 +72,14 @@ fn flat_tree_idx(
     ((1 << (PARAMS.spx_h_bar() + 1)) - (1 << (PARAMS.spx_h_bar() + 1 - (z as usize))) + i) as usize
 }
 
-// check whether a given leaf index is valid in the force-pruned PORS tree
+// check whether a given leaf index is valid in the lowest layer of the force-pruned PORS tree
 fn is_valid_leaf(
     index: u32
 ) -> bool {
     index <= ((2*PARAMS.spx_t - (1<<PARAMS.spx_h_bar()) - 1) as u32)
 }
 
-// make a given invalid leaf index (in the force-pruned PORS tree) valid,
+// make a given invalid lowest-layer leaf index (in the force-pruned PORS tree) valid,
 // by finding what its horizontal index on the second layer should be
 fn make_valid_leaf(
     index: u32
@@ -189,7 +195,7 @@ pub fn porsfp_node(
     // flattened PORS+FP tree
     let mut flat_tree: [u8; PARAMS.pors_tree_size() * PARAMS.spx_n] = [0u8; PARAMS.pors_tree_size() * PARAMS.spx_n];
 
-    for z in 0..z_target {
+    for z in 0..z_target+1 {
 
         let i_start: u32 =  i_target      * (1 << (z_target-z)); //  i_target      * 2^(z_target-z)
         let i_end: u32   = (i_target + 1) * (1 << (z_target-z)); // (i_target + 1) * 2^(z_target-z)
@@ -198,9 +204,10 @@ pub fn porsfp_node(
 
             // check whether (i, z) is a PORS+FP leaf
             let mut leaf: bool = false;
-            if (z == 0) & (is_valid_leaf(i)) { // first-layer leaf
-                leaf = true;
-            } else if (z == 1) & (!is_valid_leaf(lchild((i,z)).0)) { // second-layer leaf (as its left child is not a valid first-layer leaf)
+            if (z == 0) && (is_valid_leaf(i)) {
+                leaf = true; // first-layer leaf
+            } else if z == 1 && !is_valid_leaf(lchild((i,z)).0) {
+                // second-layer leaf (as its left child is not a valid first-layer leaf)
                 leaf = true;
             }
 
@@ -223,7 +230,7 @@ pub fn porsfp_node(
                 // set the hashed secret key in the flattened tree
                 flat_tree[idx..idx+PARAMS.spx_n].copy_from_slice(&node);
 
-            } else { // node is an internal PORS+FP node
+            } else if z >= 1 { // node is an internal PORS+FP node
 
                 // get the left child
                 let idx: usize = flat_tree_idx(lchild((i, z))) * PARAMS.spx_n;
@@ -253,14 +260,17 @@ pub fn porsfp_node(
 
             }
 
+            // else (i,z) is an invalid PORS+FP node (i.e. a pruned leaf),
+            // in which case we do not compute anything
+
         }
 
     }
 
     // get the root of the subtree at (i_target, z_target)
     let idx: usize = flat_tree_idx((i_target, z_target)) * PARAMS.spx_n; // compute the byte offset of node (i_target, z_target) in the flattened tree
-    let mut node: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n]; // declare the root value array
-    node.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]); // copy the root from the flattened tree
+    let mut node: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n]; // declare the subtree root value array
+    node.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]); // copy the subtree root from the flattened tree
 
     node
 }
