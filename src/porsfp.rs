@@ -452,7 +452,7 @@ pub fn porsfp_pkfromsig(
     // compute the PORS+FP tree root from the partially-filled tree
     // (which now contains all signature leaves and authentication nodes)
 
-    for z in 0..PARAMS.spx_h_bar()+1 { // vertically iterate over the layers
+    for z in 0..PARAMS.spx_h_bar() { // vertically iterate over the layers
 
         for i in 0..(1 << (PARAMS.spx_h_bar()-z)) { // horizontally iterate over all nodes in the current layer
 
@@ -486,10 +486,14 @@ pub fn porsfp_pkfromsig(
                 let node: [u8; PARAMS.spx_n] = h(pk_seed, &adrs, &lnode, &rnode);
 
                 // compute the byte offset of node (i, z) in the flattened tree
-                let idx_offset: usize = flat_tree_idx((i_parent, z_parent)) * PARAMS.spx_n;
+                let idx_parent: usize = flat_tree_idx((i_parent, z_parent));
+                let idx_offset: usize = idx_parent * PARAMS.spx_n;
 
                 // set the internal node in the flattened tree
                 flat_tree[idx_offset..idx_offset+PARAMS.spx_n].copy_from_slice(&node);
+
+                // set the parent node to populated
+                populated[idx_parent] = true;
 
             }
 
