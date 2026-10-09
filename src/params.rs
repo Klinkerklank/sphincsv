@@ -70,21 +70,19 @@ impl SphincsvParams {
     }
 
     pub const fn spx_m(&self) -> usize {
-        self.spx_n
-            + ceil_div(self.spx_h - self.spx_h_prime(), 8)
-            + ceil_div(self.spx_h_prime(), 8)
+        self.spx_md_len() + self.spx_idx_tree_len() + self.spx_idx_leaf_len()
     }
 
     pub const fn spx_md_len(&self) -> usize {
-        self.spx_n / 8
+        self.spx_n
     }
 
     pub const fn spx_idx_tree_len(&self) -> usize {
-        (self.spx_h - self.spx_h_prime() + 7) / 8 // ceil((SPX_H - SPX_H_PRIME) / 8)
+        ceil_div(self.spx_h - self.spx_h_prime(), 8) // ceil((SPX_H - SPX_H_PRIME) / 8)
     }
 
     pub const fn spx_idx_leaf_len(&self) -> usize {
-        (self.spx_h_prime() + 7) / 8 // ceil((SPX_H_PRIME) / 8)
+        ceil_div(self.spx_h_prime(), 8) // ceil((SPX_H_PRIME) / 8)
     }
 
     // WOTS+ parameters

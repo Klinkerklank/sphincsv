@@ -8,7 +8,6 @@
  * author: Dennis op 't Roodt 2026-10-02 (d.n.e.o.t.roodt@tue.nl)
  */
 
- // SPHINCS+ ADRS structure
 #[derive(Clone, Copy)] // allows for cloning ADRS structures
 pub struct Adrs {
     words: [u32; 8],

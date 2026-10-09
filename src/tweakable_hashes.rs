@@ -9,8 +9,6 @@
  * author: Dennis op 't Roodt 2026-10-05 (d.n.e.o.t.roodt@tue.nl)
  */
 
-// SPHINCS+ ADRS structure
-
 use crate::adrs::Adrs;     // ADRS data structure
 use crate::params::PARAMS; // the SPHINCS+V parameters
 

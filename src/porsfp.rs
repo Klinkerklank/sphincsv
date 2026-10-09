@@ -13,7 +13,7 @@
 
 use crate::params::PARAMS;  // the SPHINCS+V parameters
 use crate::adrs::Adrs;      // ADRS data structure
-use crate::adrs::adrs_type; // ADRS type constants  
+use crate::adrs::adrs_type; // ADRS type constants
 use crate::tweakable_hashes::{prf, f, h, h2}; // hash function instantiations
 
 use std::vec::Vec; // for using lists of coordinate pairs
@@ -156,7 +156,7 @@ fn octopus (
 | ALGORITHM 1 FROM [AK25].                                     |
 | Generates a PORS+FP private-key value.                       |
 +-------------------------------------------------------------*/
-fn porsfp_skgen(
+pub fn porsfp_skgen(
     sk_seed: &[u8; PARAMS.spx_n], // SK.seed
     pk_seed: &[u8; PARAMS.spx_n], // PK.seed
     mut adrs: Adrs,               // ADRS
@@ -178,7 +178,7 @@ fn porsfp_skgen(
 | ALGORITHM 2 FROM [AK25].                                     |
 | Generates a PORS+FP private-key value.                       |
 +-------------------------------------------------------------*/
-fn porsfp_node(
+pub fn porsfp_node(
     sk_seed: &[u8; PARAMS.spx_n], // SK.seed
     i_target: u32,                // node's horizontal index
     z_target: u32,                // node's height
@@ -270,7 +270,7 @@ fn porsfp_node(
 | ALGORITHM 2 FROM [AK25].                                     |
 | Generates a PORS+FP signature.                               |
 +-------------------------------------------------------------*/
-fn porsfp_sign(
+pub fn porsfp_sign(
     md: &[u8; PARAMS.spx_n],      // message digest
     sk_seed: &[u8; PARAMS.spx_n], // SK.seed
     pk_seed: &[u8; PARAMS.spx_n], // PK.seed
@@ -361,7 +361,7 @@ fn porsfp_sign(
 | ALGORITHM 3 FROM [AK25].                                     |
 | Computes a PORS+FP root from a signature.                    |
 +-------------------------------------------------------------*/
-fn porsfp_pkfromsig(
+pub fn porsfp_pkfromsig(
     sig_porsfp: [u8; PARAMS.porsfp_sig()], // PORS+FP signature
     md: &[u8; PARAMS.spx_n],               // message digest
     pk_seed: &[u8; PARAMS.spx_n],          // PK.seed
