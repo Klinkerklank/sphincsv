@@ -100,7 +100,7 @@ fn main() {
     adrs.set_key_pair_addr(idx_leaf);
 
     // compute the root of the PORS+FP instance from the signature using porsfp_pkfromsig
-    let pk_sign: [u8; PARAMS.spx_n] = porsfp::porsfp_pkfromsig(sig_porsfp, &md, &pk_seed, &mut adrs);
+    let pk_sign: [u8; PARAMS.spx_n] = porsfp::porsfp_pkfromsig(&sig_porsfp, &md, &pk_seed, &mut adrs);
 
     println!("root according to porsfp_pkfromsig:");
     println!("{:02x?}\n", pk_sign);

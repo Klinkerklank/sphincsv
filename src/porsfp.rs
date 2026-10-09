@@ -378,10 +378,10 @@ pub fn porsfp_sign(
 | Computes a PORS+FP root from a signature.                    |
 +-------------------------------------------------------------*/
 pub fn porsfp_pkfromsig(
-    sig_porsfp: [u8; PARAMS.porsfp_sig()], // PORS+FP signature
-    md: &[u8; PARAMS.spx_n],               // message digest
-    pk_seed: &[u8; PARAMS.spx_n],          // PK.seed
-    adrs: &mut Adrs,                       // ADRS
+    sig_porsfp: &[u8; PARAMS.porsfp_sig()], // PORS+FP signature
+    md: &[u8; PARAMS.spx_n],                // message digest
+    pk_seed: &[u8; PARAMS.spx_n],           // PK.seed
+    adrs: &mut Adrs,                        // ADRS
 ) -> [u8; PARAMS.spx_n] { // PORS+FP signature
 
     // extract the counter value from the signature
