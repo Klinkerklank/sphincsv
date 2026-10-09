@@ -34,7 +34,6 @@ fn parse_indices(
 
 fn main() {
 
-    println!("Running test for PORS+FP");
     println!();
 
     let sk_seed: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];

@@ -17,6 +17,8 @@ pub const PARAMS: SphincsvParams = SphincsvParams {
     spx_d: 22,
 
     // PORS+FP
+    // spx_mmax should be 156 according to the paper,
+    // but the size of A is about 80-90 and su it never gets low enough
     spx_mmax: 178,
     spx_t:    33 * (1 << 6), // 33*(2^6)
     spx_k:    33,

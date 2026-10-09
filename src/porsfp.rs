@@ -333,10 +333,10 @@ pub fn porsfp_sign(
     adrs.set_key_pair_addr(kpa); // set the stored key pair address
 
     // store the PORS+FP leaves, one at a time
-    for (i, z) in leaf_nodes {
+    for (i, z) in (leaf_nodes.iter()).chain(prnt_nodes.iter()) {
 
         // compute the secret key
-        let sk: [u8; PARAMS.spx_n] = porsfp_skgen(sk_seed, pk_seed, *adrs, i, z);
+        let sk: [u8; PARAMS.spx_n] = porsfp_skgen(sk_seed, pk_seed, *adrs, *i, *z);
 
         // compute the hash of the secret key
         let node: [u8; PARAMS.spx_n] = f(pk_seed, adrs, &sk);
@@ -428,12 +428,16 @@ pub fn porsfp_pkfromsig(
 
     for z in 0..PARAMS.spx_h_bar() { // vertically iterate over the layers
 
-        for i in 0..(1 << (PARAMS.spx_h_bar()-z)) { // horizontally iterate over all nodes in the current layer
+        let mut i: u32 = 0; // manually iterate over every left child, by incrementing i with 2 per iteration
+
+        while i < (1 << (PARAMS.spx_h_bar()-z)) { // horizontally iterate over all left children in the current layer
 
             // compute the index of node (i, z) in the flattened tree
             let idx: usize = flat_tree_idx((i, z as u32));
 
             // if (i, z) is populated, compute its parent
+            // (note that (i+1, z) must be populated as well,
+            //  and thus we skip duplicate computations by incrementing i by 2 every iteration)
             if populated[idx] {
 
                 // get the left child (which is the node (i, z))
@@ -441,8 +445,8 @@ pub fn porsfp_pkfromsig(
                 let mut lnode: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
                 lnode.copy_from_slice(&flat_tree[idx_offset..idx_offset+PARAMS.spx_n]);
 
-                // get the right child
-                let idx_offset: usize = flat_tree_idx(sibling((i, z as u32))) * PARAMS.spx_n;
+                // get the right child (which is the node (i+1, z))
+                let idx_offset: usize = (idx+1) * PARAMS.spx_n;
                 let mut rnode: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
                 rnode.copy_from_slice(&flat_tree[idx_offset..idx_offset+PARAMS.spx_n]);
 
@@ -470,6 +474,8 @@ pub fn porsfp_pkfromsig(
                 populated[idx_parent] = true;
 
             }
+
+            i += 2;
 
         }
 
