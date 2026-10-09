@@ -50,29 +50,29 @@ fn main() {
     let pk_node: [u8; PARAMS.spx_n] = porsfp::porsfp_node(&sk_seed, 0 as u32, PARAMS.spx_h_bar() as u32, &pk_seed, adrs);
 
     println!("root according to porsfp_node:");
-    println!("{:02x?}", pk_node);
+    println!("{:02x?}\n", pk_node);
 
     // construct an abitrary message and context
     let message: [u8; PARAMS.spx_n] = [0xFF; PARAMS.spx_n];
     let context: [u8; PARAMS.spx_n] = [0xAA; PARAMS.spx_n];
 
     // println!("message:");
-    // println!("{:02x?}", message);
+    // println!("{:02x?}\n", message);
 
     // println!("context:");
-    // println!("{:02x?}", context);
+    // println!("{:02x?}\n", context);
 
     // compute the message randomiser
     let r: [u8; PARAMS.spx_n] = prf_msg(&sk_prf, &optrand, &context, &message);
 
-    println!("r:");
-    println!("{:02x?}", r);
+    // println!("r:");
+    // println!("{:02x?}\n", r);
 
     // compute the message digest
     let digest: [u8; PARAMS.spx_m()] = h_msg(&r, &pk_seed, &pk_root, &context, &message);
 
-    println!("digest:");
-    println!("{:02x?}", digest);
+    // println!("digest:");
+    // println!("{:02x?}\n", digest);
 
     // extract md, tmp_idx_tree, and tmp_idx_leaf from digest
     let mut md:           [u8; PARAMS.spx_md_len()]       = [0u8; PARAMS.spx_md_len()];
@@ -90,16 +90,21 @@ fn main() {
     adrs.set_type_and_clear(adrs_type::PORS_TREE);
     adrs.set_key_pair_addr(idx_leaf);
 
-    // // compute a signature on the message digest md using porsfp_sign
-    // let sig_porsfp: [u8; PARAMS.porsfp_sig()] = porsfp::porsfp_sign(&md, &sk_seed, &pk_seed, &mut adrs);
+    // compute a signature on the message digest md using porsfp_sign
+    let sig_porsfp: [u8; PARAMS.porsfp_sig()] = porsfp::porsfp_sign(&md, &sk_seed, &pk_seed, &mut adrs);
 
-    // println!("signature computed");
+    println!("signature computed\n");
 
-    // // compute the root of the PORS+FP instance from the signature using porsfp_pkfromsig
-    // let pk_sign: [u8; PARAMS.spx_n] = porsfp::porsfp_pkfromsig(sig_porsfp, &md, &pk_seed, &mut adrs);
+    // set the ADRS values for the PORS+FP signature generation
+    adrs.set_tree_addr(idx_tree);
+    adrs.set_type_and_clear(adrs_type::PORS_TREE);
+    adrs.set_key_pair_addr(idx_leaf);
 
-    // println!("root according to porsfp_pkfromsig:");
-    // println!("{:02x?}", pk_sign);
+    // compute the root of the PORS+FP instance from the signature using porsfp_pkfromsig
+    let pk_sign: [u8; PARAMS.spx_n] = porsfp::porsfp_pkfromsig(sig_porsfp, &md, &pk_seed, &mut adrs);
+
+    println!("root according to porsfp_pkfromsig:");
+    println!("{:02x?}\n", pk_sign);
 
 }
 

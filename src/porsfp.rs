@@ -99,6 +99,8 @@ fn init_octopus(
     let mut leaf_nodes: Vec<(u32, u32)> = vec![]; // the list of leaf nodes for Octopus (I)
     let mut prnt_nodes: Vec<(u32, u32)> = vec![]; // the list of parent nodes for Octopus (P)
 
+    assert!(indices.len() == PARAMS.spx_k, "\x1b[1;91mindices not of length SPX_K\x1b[0m");
+
     // process every leaf index
     for index in indices {
 
@@ -116,6 +118,8 @@ fn init_octopus(
         }
 
     }
+
+    assert!(leaf_nodes.len() + prnt_nodes.len() == PARAMS.spx_k, "\x1b[1;91mleaf_nodes + prnt_nodes not of length SPX_K\x1b[0m");
 
     (leaf_nodes, prnt_nodes)
 }
@@ -313,6 +317,8 @@ pub fn porsfp_sign(
 
     }
 
+    println!("counter found! ctr={}", ctr);
+
     // sig_porsfp = (ctr, {F_SK(i)}_i∈I, {y_i}_i∈A), initialised to all-zero
     let mut sig_porsfp: [u8; PARAMS.porsfp_sig()] = [0u8; PARAMS.porsfp_sig()];
 
@@ -395,13 +401,41 @@ pub fn porsfp_pkfromsig(
     // A = octopus(I, P)
     auth_nodes = octopus(&leaf_nodes, &prnt_nodes);
 
+    assert!(auth_nodes.len() <= PARAMS.spx_mmax, "\x1b[1;91mauth_nodes not of length SPX_MMAX\x1b[0m");
+
     // flattened PORS+FP tree
     let mut flat_tree: [u8; PARAMS.pors_tree_size() * PARAMS.spx_n] = [0u8; PARAMS.pors_tree_size() * PARAMS.spx_n];
     let mut populated: [bool; PARAMS.pors_tree_size()] = [false; PARAMS.pors_tree_size()];
 
     // extract the first-layer leaves, second-layer leaves, and authentication nodes from the signature
     let mut idx_sig: usize = 4; // byte index in sig_porsfp
-    for (i, z) in (leaf_nodes.iter()).chain(prnt_nodes.iter()).chain(auth_nodes.iter()) {
+    for (i, z) in leaf_nodes.iter() {
+
+        // compute the byte offset of node (i, z) in the flattened tree
+        let idx: usize = flat_tree_idx((*i, *z));
+        let idx_flat: usize = idx * PARAMS.spx_n;
+
+        // set the node in the flattened tree, and set its node position to populated
+        flat_tree[idx_flat..idx_flat+PARAMS.spx_n].copy_from_slice(&sig_porsfp[idx_sig..idx_sig+PARAMS.spx_n]);
+        populated[idx] = true;
+
+        idx_sig += PARAMS.spx_n; // one node has been set
+
+    }
+    for (i, z) in prnt_nodes.iter() {
+
+        // compute the byte offset of node (i, z) in the flattened tree
+        let idx: usize = flat_tree_idx((*i, *z));
+        let idx_flat: usize = idx * PARAMS.spx_n;
+
+        // set the node in the flattened tree, and set its node position to populated
+        flat_tree[idx_flat..idx_flat+PARAMS.spx_n].copy_from_slice(&sig_porsfp[idx_sig..idx_sig+PARAMS.spx_n]);
+        populated[idx] = true;
+
+        idx_sig += PARAMS.spx_n; // one node has been set
+
+    }
+    for (i, z) in auth_nodes.iter() {
 
         // compute the byte offset of node (i, z) in the flattened tree
         let idx: usize = flat_tree_idx((*i, *z));
@@ -418,7 +452,7 @@ pub fn porsfp_pkfromsig(
     // compute the PORS+FP tree root from the partially-filled tree
     // (which now contains all signature leaves and authentication nodes)
 
-    for z in 0..PARAMS.spx_h_bar() { // vertically iterate over the layers
+    for z in 0..PARAMS.spx_h_bar()+1 { // vertically iterate over the layers
 
         for i in 0..(1 << (PARAMS.spx_h_bar()-z)) { // horizontally iterate over all nodes in the current layer
 

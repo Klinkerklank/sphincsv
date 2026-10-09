@@ -17,9 +17,14 @@ pub const PARAMS: SphincsvParams = SphincsvParams {
     spx_d: 22,
 
     // PORS+FP
-    spx_mmax: 156,
+    spx_mmax: 178,
     spx_t:    33 * (1 << 6), // 33*(2^6)
     spx_k:    33,
+
+    // // PORS+FP
+    // spx_mmax: 156,
+    // spx_t:    33 * (1 << 6), // 33*(2^6)
+    // spx_k:    33,
 
 };
 
@@ -142,7 +147,7 @@ impl SphincsvParams {
     }
 
     pub const fn porsfp_sig(&self) -> usize {
-        4 + self.spx_n*self.spx_k + self.spx_mmax*self.spx_n // u32 + (SPX_K*SPX_N) + (SPX_M_MAX*SPX_N)
+        4 + self.spx_k*self.spx_n + self.spx_mmax*self.spx_n // u32 + (SPX_K*SPX_N) + (SPX_M_MAX*SPX_N)
     }
 
     pub const fn spx_sig(&self) -> usize {
