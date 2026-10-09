@@ -409,33 +409,7 @@ pub fn porsfp_pkfromsig(
 
     // extract the first-layer leaves, second-layer leaves, and authentication nodes from the signature
     let mut idx_sig: usize = 4; // byte index in sig_porsfp
-    for (i, z) in leaf_nodes.iter() {
-
-        // compute the byte offset of node (i, z) in the flattened tree
-        let idx: usize = flat_tree_idx((*i, *z));
-        let idx_flat: usize = idx * PARAMS.spx_n;
-
-        // set the node in the flattened tree, and set its node position to populated
-        flat_tree[idx_flat..idx_flat+PARAMS.spx_n].copy_from_slice(&sig_porsfp[idx_sig..idx_sig+PARAMS.spx_n]);
-        populated[idx] = true;
-
-        idx_sig += PARAMS.spx_n; // one node has been set
-
-    }
-    for (i, z) in prnt_nodes.iter() {
-
-        // compute the byte offset of node (i, z) in the flattened tree
-        let idx: usize = flat_tree_idx((*i, *z));
-        let idx_flat: usize = idx * PARAMS.spx_n;
-
-        // set the node in the flattened tree, and set its node position to populated
-        flat_tree[idx_flat..idx_flat+PARAMS.spx_n].copy_from_slice(&sig_porsfp[idx_sig..idx_sig+PARAMS.spx_n]);
-        populated[idx] = true;
-
-        idx_sig += PARAMS.spx_n; // one node has been set
-
-    }
-    for (i, z) in auth_nodes.iter() {
+    for (i, z) in (leaf_nodes.iter()).chain(prnt_nodes.iter()).chain(auth_nodes.iter()) {
 
         // compute the byte offset of node (i, z) in the flattened tree
         let idx: usize = flat_tree_idx((*i, *z));
