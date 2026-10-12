@@ -4,9 +4,9 @@
  * author: Dennis op 't Roodt 2026-10-12 (d.n.e.o.t.roodt@tue.nl)
  */
 
+use crate::params::PARAMS;  // the SPHINCS+V parameters
 use crate::adrs::Adrs;      // ADRS data structure
 use crate::adrs::adrs_type; // ADRS type constants
-use crate::params::PARAMS;  // the SPHINCS+V parameters
 
 use crate::tweakable_hashes::{prf_msg, h_msg}; // hash function instantiations
 
