@@ -1,7 +1,3 @@
-// TODO remove after code is done
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
 /*
  * HT algorithms, based on:
  * [QSZ26] Qin, Z., Sun, S. and Zheng, F., 'Extending the SPHINCS+ Framework: Varying the Tree Heights and Chain Lengths', Oct 2026
