@@ -8,9 +8,9 @@
 
 use crate::params::PARAMS;  // the SPHINCS+V parameters
 use crate::adrs::Adrs;      // ADRS data structure
-use crate::adrs::adrs_type;
-use crate::xmss::xmss_pkfromsig;
-use crate::xmss::xmss_sign; // ADRS type constants
+use crate::adrs::adrs_type; // ADRS type constants
+
+use crate::xmss::{xmss_pkfromsig, xmss_sign}; // XMSS implementation
 
 /////////////////////// HELPER FUNCTIONS ///////////////////////
 
