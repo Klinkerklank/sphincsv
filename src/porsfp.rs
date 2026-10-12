@@ -1,8 +1,3 @@
-
-// TODO remove after code is done
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
 /*
  * PORS+FP algorithms, based on:
  * [AK25] Abri, M. and Katz, J., 'Shorter Hash-Based Signatures Using Forced Pruning', Aug 2026
@@ -14,6 +9,7 @@
 use crate::params::PARAMS;  // the SPHINCS+V parameters
 use crate::adrs::Adrs;      // ADRS data structure
 use crate::adrs::adrs_type; // ADRS type constants
+
 use crate::tweakable_hashes::{prf, f, h, h2}; // hash function instantiations
 
 use std::vec::Vec; // for using lists of coordinate pairs
@@ -26,8 +22,6 @@ fn parent(
     // z = height of the node in the PORS+FP tree
     (i, z): (u32, u32), // node
 ) -> (u32, u32) {
-    assert!(z < PARAMS.spx_h_bar() as u32, "\x1b[1;91mCannot get parent of the PORS+FP tree root ({}, {})\x1b[0m", i, z);
-
     (i>>1, z+1)
 }
 
@@ -37,8 +31,6 @@ fn lchild(
     // z = height of the node in the PORS+FP tree
     (i, z): (u32, u32), // node
 ) -> (u32, u32) {
-    assert!(z > 0, "\x1b[1;91mCannot get left child of node ({}, {}) with z=0\x1b[0m", i, z);
-
     (i<<1, z-1)
 }
 
@@ -48,8 +40,6 @@ fn rchild(
     // z = height of the node in the PORS+FP tree
     (i, z): (u32, u32), // node
 ) -> (u32, u32) {
-    assert!(z > 0, "\x1b[1;91mCannot get right child of a node with z=0\x1b[0m");
-
     ((i<<1)+1, z-1)
 }
 
@@ -99,8 +89,6 @@ fn init_octopus(
     let mut leaf_nodes: Vec<(u32, u32)> = vec![]; // the list of leaf nodes for Octopus (I)
     let mut prnt_nodes: Vec<(u32, u32)> = vec![]; // the list of parent nodes for Octopus (P)
 
-    assert!(indices.len() == PARAMS.spx_k, "\x1b[1;91mindices not of length SPX_K\x1b[0m");
-
     // process every leaf index
     for index in indices {
 
@@ -118,8 +106,6 @@ fn init_octopus(
         }
 
     }
-
-    assert!(leaf_nodes.len() + prnt_nodes.len() == PARAMS.spx_k, "\x1b[1;91mleaf_nodes + prnt_nodes not of length SPX_K\x1b[0m");
 
     (leaf_nodes, prnt_nodes)
 }
@@ -166,7 +152,7 @@ fn octopus (
 | ALGORITHM 1 FROM [AK25].                                     |
 | Generates a PORS+FP private-key value.                       |
 +-------------------------------------------------------------*/
-pub fn porsfp_skgen(
+fn porsfp_skgen(
     sk_seed: &[u8; PARAMS.spx_n], // SK.seed
     pk_seed: &[u8; PARAMS.spx_n], // PK.seed
     mut adrs: Adrs,               // ADRS
@@ -188,7 +174,7 @@ pub fn porsfp_skgen(
 | ALGORITHM 2 FROM [AK25].                                     |
 | Generates a PORS+FP private-key value.                       |
 +-------------------------------------------------------------*/
-pub fn porsfp_node(
+pub fn porsfp_node( // TODO remove 'pub', which is only there for debugging purposes
     sk_seed: &[u8; PARAMS.spx_n], // SK.seed
     i_target: u32,                // node's horizontal index
     z_target: u32,                // node's height
@@ -317,6 +303,7 @@ pub fn porsfp_sign(
 
     }
 
+    // TODO remove print, which is only there for debugging purposes
     println!("counter found! ctr={}", ctr);
 
     // sig_porsfp = (ctr, {F_SK(i)}_i∈I, {y_i}_i∈A), initialised to all-zero
@@ -400,8 +387,6 @@ pub fn porsfp_pkfromsig(
 
     // A = octopus(I, P)
     auth_nodes = octopus(&leaf_nodes, &prnt_nodes);
-
-    assert!(auth_nodes.len() <= PARAMS.spx_mmax, "\x1b[1;91mauth_nodes not of length SPX_MMAX\x1b[0m");
 
     // flattened PORS+FP tree
     let mut flat_tree: [u8; PARAMS.pors_tree_size() * PARAMS.spx_n] = [0u8; PARAMS.pors_tree_size() * PARAMS.spx_n];
