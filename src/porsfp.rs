@@ -34,15 +34,6 @@ fn lchild(
     (i<<1, z-1)
 }
 
-// compute the right child's coordinates from a given node's (i,z) coordinates
-fn rchild(
-    // i = horizontal index of the node in the PORS+FP tree
-    // z = height of the node in the PORS+FP tree
-    (i, z): (u32, u32), // node
-) -> (u32, u32) {
-    ((i<<1)+1, z-1)
-}
-
 // compute the sibling's coordinates from a given node's (i,z) coordinates
 fn sibling(
     // i = horizontal index of the node in the PORS+FP tree
@@ -182,14 +173,18 @@ pub fn porsfp_node( // TODO remove 'pub', which is only there for debugging purp
     mut adrs: Adrs,               // ADRS
 ) -> [u8; PARAMS.spx_n] { // PORS+FP secret key value
 
-    // flattened PORS+FP tree
+    // array buffer with enough place to fit the entire (flattened) PORS+FP tree
+    // note that for efficiency only those nodes are computed that are needed
+    // to find the target node, so not necessarily the entire buffer is filled
     let mut flat_tree: [u8; PARAMS.pors_tree_size() * PARAMS.spx_n] = [0u8; PARAMS.pors_tree_size() * PARAMS.spx_n];
 
+    // iterate over the layers, bottom to top
     for z in 0..z_target+1 {
 
         let i_start: u32 =  i_target      * (1 << (z_target-z)); //  i_target      * 2^(z_target-z)
         let i_end: u32   = (i_target + 1) * (1 << (z_target-z)); // (i_target + 1) * 2^(z_target-z)
 
+        // iterate over the nodes in a layer, left to right
         for i in i_start..i_end {
 
             // check whether (i, z) is a PORS+FP leaf
@@ -223,12 +218,12 @@ pub fn porsfp_node( // TODO remove 'pub', which is only there for debugging purp
             } else if z >= 1 { // node is an internal PORS+FP node
 
                 // get the left child
-                let idx: usize = flat_tree_idx(lchild((i, z))) * PARAMS.spx_n;
+                let mut idx: usize = flat_tree_idx(lchild((i, z))) * PARAMS.spx_n;
                 let mut lnode: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
                 lnode.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]);
 
                 // get the right child
-                let idx: usize = flat_tree_idx(rchild((i, z))) * PARAMS.spx_n;
+                idx += PARAMS.spx_n;
                 let mut rnode: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
                 rnode.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]);
 
@@ -388,7 +383,9 @@ pub fn porsfp_pkfromsig(
     // A = octopus(I, P)
     auth_nodes = octopus(&leaf_nodes, &prnt_nodes);
 
-    // flattened PORS+FP tree
+    // array buffer with enough place to fit the entire (flattened) PORS+FP tree
+    // note that for efficiency only those nodes are computed that are needed
+    // to find the target node, so not necessarily the entire buffer is filled
     let mut flat_tree: [u8; PARAMS.pors_tree_size() * PARAMS.spx_n] = [0u8; PARAMS.pors_tree_size() * PARAMS.spx_n];
     let mut populated: [bool; PARAMS.pors_tree_size()] = [false; PARAMS.pors_tree_size()];
 
