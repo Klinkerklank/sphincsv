@@ -59,27 +59,22 @@ const fn ceil_div(x: usize, y: usize) -> usize {
 
 const fn spx_v() -> usize {
     let mut v = 1;
-    // loop {
-    //     // w^v > 2^(lambda + log4 lambda)  <=>  2*v*lg_w > 2*lambda + log2(lambda)
-    //     let feasible = 2 * v * self.spx_lg_w > 2 * self.spx_lambda + ceil_log2(self.spx_lambda);
-    //     if feasible {
-    //         if let Some(_) = d0_for(self.spx_lg_w, v, self.spx_lambda) {
-    //             return v;
-    //         }
-    //     }
-    //     v += 1;
-    //     if v == 128 {
-    //         println!("v=128 reached and counting...");
-    //     }
-    // }
-    v
+    loop {
+        // w^v > 2^(lambda + log4 lambda)  <=>  2*v*lg_w > 2*lambda + log2(lambda)
+        let feasible = 2 * v * LG_W > 2 * LAMBDA + ceil_log2(LAMBDA);
+        if feasible {
+            if let Some(_) = d0_for(LG_W, v, LAMBDA) {
+                return v;
+            }
+        }
+        v += 1;
+    }
 }
 
 const fn spx_d0() -> usize {
-    // // find the minimum hypercube layer d0 such that l_d0 >= 2^lambda
-    // match d0_for(self.spx_lg_w, self.spx_v(), self.spx_lambda) {
-    //     Some(d) => d,
-    //     None => panic!("no layer with >= 2^lambda vertices"),
-    // }
-    1
+    // find the minimum hypercube layer d0 such that l_d0 >= 2^lambda
+    match d0_for(LG_W, V, LAMBDA) {
+        Some(d) => d,
+        None => panic!("no layer with >= 2^lambda vertices"),
+    }
 }
