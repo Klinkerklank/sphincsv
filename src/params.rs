@@ -6,59 +6,18 @@
 
 use crate::u256::d0_for; // WOTS+ parameter computation stuff
 
-const PARAMS: SphincsvParams = SphincsvParams {
+/* input parameter constants */
 
-    // security parameter
-    n: 16,
+pub const N: usize = 16;
+pub const LG_W: usize = 4;
+pub const LAMBDA: usize = 128;
+pub const H: usize = 66;
+pub const D: usize = 22;
+pub const MMAX: usize = 178;
+pub const T: usize = 33 * (1<<6);
+pub const K: usize = 33;
 
-    // WOTS+
-    lg_w: 4,
-    lambda: 128,
-
-    // HT and XMSS
-    h: 66,
-    d: 22,
-
-    // PORS+FP
-    // spx_mmax should be 156 according to the paper,
-    // but the size of A is about 180-190 and so it never gets low enough
-    mmax: 178,
-    t:    33 * (1 << 6), // 33*(2^6)
-    k:    33,
-
-};
-
-struct SphincsvParams {
-
-    // security parameter
-    pub n: usize,
-
-    // WOTS+
-    pub lg_w: usize,   // WOTS+ chain length
-    pub lambda: usize, // security parameter
-
-    // HT and XMSS
-    pub h: usize, // total hypertree height
-    pub d: usize, // number of layers of XMSS trees in the hypertree
-
-    // PORS+FP
-    pub mmax: usize, // maximum number of PORS+FP secret key values in a signature
-    pub t: usize,    // total number of PORS+FP tree secret-key leaves
-    pub k: usize,    // number of PORS+FP secret-key leaves revealed for a signature
-
-}
-
-// input parameter constants
-pub const N: usize = PARAMS.n;
-pub const LG_W: usize = PARAMS.lg_w;
-pub const LAMBDA: usize = PARAMS.lambda;
-pub const H: usize = PARAMS.h;
-pub const D: usize = PARAMS.d;
-pub const MMAX: usize = PARAMS.mmax;
-pub const T: usize = PARAMS.t;
-pub const K: usize = PARAMS.k;
-
-// computed parameter constants:
+/* derived parameter constants */
 
 // SPHINCS+V parameters
 pub const SKBYTES: usize = 4*N;
@@ -88,19 +47,10 @@ pub const HT_SIG: usize = D*XMSS_SIG;
 pub const PORS_SIG: usize = 4 + K*N + MMAX*N;
 pub const SPXV_SIG: usize = N + PORS_SIG + PORS_SIG;
 
-// helper functions
-
-const fn floor_log2(x: usize) -> usize {
-    usize::BITS as usize - 1 - x.leading_zeros() as usize
-}
+/* helper functions */
 
 const fn ceil_log2(x: usize) -> usize {
     if x <= 1 { 0 } else { usize::BITS as usize - (x-1).leading_zeros() as usize }
-}
-
-const fn ceil_log4(x: usize) -> usize {
-    // ceil(log4 x) = ceil(ceil(log2 x) / 2)
-    (ceil_log2(x) + 1) / 2
 }
 
 const fn ceil_div(x: usize, y: usize) -> usize {
