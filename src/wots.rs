@@ -188,7 +188,7 @@ pub fn wots_pkgen(
     let mut skadrs: Adrs = Adrs::clone(&adrs);
     skadrs.set_type_and_clear(adrs_type::WOTS_PRF);
     
-    // get the key pair address from ADRS, and set it in adrs_key
+    // get the key pair address from ADRS, and set it in skadrs
     skadrs.set_key_pair_addr(adrs.get_key_pair_addr());
 
     // compute all secret key values
@@ -233,16 +233,60 @@ pub fn wots_pkgen(
 | Generates a WOTS+ signature on an n-byte message.            |
 +-------------------------------------------------------------*/
 pub fn wots_sign(
-    _m: &[u8; N],       // message to sign (XMSS tree root or PORS+FP public key)
-    _sk_seed: &[u8; N], // SK.seed
-    _pk_seed: &[u8; N], // PK.seed
-    mut _adrs: Adrs,    // ADRS
+    m: &[u8; N],       // message to sign (XMSS tree root or PORS+FP public key)
+    sk_seed: &[u8; N], // SK.seed
+    pk_seed: &[u8; N], // PK.seed
+    mut adrs: Adrs,    // ADRS
 ) -> [u8; WOTS_SIG] // -> sig_wots
 {
 
+    // initialise the WOTS+ signature
+    let mut sig_wots: [u8; WOTS_SIG] = [0u8; WOTS_SIG];
 
+    // compute the chain lengths based on the message
+    let lengths: [usize; V] = top_single_layer(&m);
+    
+    // clone ADRS and set the correct type for computing WOTS+ secret keys
+    let mut skadrs: Adrs = Adrs::clone(&adrs);
+    skadrs.set_type_and_clear(adrs_type::WOTS_PRF);
+    
+    // get the key pair address from ADRS, and set it in skadrs
+    skadrs.set_key_pair_addr(adrs.get_key_pair_addr());
 
-    let sig_wots: [u8; WOTS_SIG] = [0u8; WOTS_SIG];
+    // compute all secret key values
+    for idx_chain in 0..V {
+
+        // update the chain address in ADRS
+        skadrs.set_chain_addr(idx_chain as u32);
+
+        // compute the WOTS+ secret key value
+        let sk_wots: [u8; N] = prf(&pk_seed, &sk_seed, &skadrs);
+
+        // store the secret key value in the WOTS+ signature (to overwrite int he next loop)
+        sig_wots[idx_chain*N..(idx_chain+1)*N].copy_from_slice(&sk_wots);
+
+    }
+
+    // compute all signature values
+    for idx_chain in 0..V {
+
+        // update the chain address in ADRS
+        adrs.set_chain_addr(idx_chain as u32);
+
+        let start: u32 = 0;                         // start index is the first chain value (the secret key value)
+        let steps: u32 = lengths[idx_chain] as u32; // evaluate the hash chain to the signature value
+        
+        // take the secret key value computed in the previous loop
+        let mut sk_wots: [u8; N] = [0u8; N];
+        sk_wots.copy_from_slice(&sig_wots[idx_chain*N..(idx_chain+1)*N]);
+        
+        // compute the WOTS+ signature value
+        let pk_wots: [u8; N] = chain(&sk_wots, start, steps, &pk_seed, adrs);
+
+        // store the signature value in the WOTS+ signature
+        sig_wots[idx_chain*N..(idx_chain+1)*N].copy_from_slice(&pk_wots);
+
+    }
 
     sig_wots
 }
