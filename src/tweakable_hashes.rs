@@ -1,16 +1,12 @@
-
-// TODO remove after code is done
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
 /*
  * SPHINCS+V tweakable hash function instantiations
  * 
  * author: Dennis op 't Roodt 2026-10-05 (d.n.e.o.t.roodt@tue.nl)
  */
 
-use crate::adrs::Adrs;     // ADRS data structure
-use crate::params::PARAMS; // the SPHINCS+V parameters
+use crate::adrs::Adrs; // ADRS data structure
+
+use crate::params::{N, M, K, T, V}; // parameter values
 
 use hmac::{Hmac, Mac};     // use the HMAC function for PRF_msg
 use hmac::digest::KeyInit; // for HMAC key initialisation
@@ -24,11 +20,11 @@ pub const SHA256_OUT: usize = 32;
 
 // helper for the first-block hash input setup
 fn initialise_hash(
-    pk_seed: &[u8; PARAMS.spx_n], // PK.seed
+    pk_seed: &[u8; N], // PK.seed
 ) -> Sha256 {
 
     // create the zero padding
-    let zero_padding: [u8; SHA256_IN-PARAMS.spx_n] = [0u8; SHA256_IN-PARAMS.spx_n];
+    let zero_padding: [u8; SHA256_IN-N] = [0u8; SHA256_IN-N];
 
     // initialise the SHA-2 state
     let mut hash: Sha256 = Sha256::new();
@@ -41,12 +37,12 @@ fn initialise_hash(
 
 // H_msg(R, PK.seed, PK.root, M) = MGF1-SHA-256(R || PK.seed || SHA-256(R || PK.seed || PK.root || M), m)
 pub fn h_msg(
-    r: &[u8; PARAMS.spx_n],       // message randomiser
-    pk_seed: &[u8; PARAMS.spx_n], // PK.seed
-    pk_root: &[u8; PARAMS.spx_n], // PK.root
+    r: &[u8; N],       // message randomiser
+    pk_seed: &[u8; N], // PK.seed
+    pk_root: &[u8; N], // PK.root
     context: &[u8],               // context string
     message: &[u8],               // message to be signed
-) -> [u8; PARAMS.spx_m()] {
+) -> [u8; M] {
 
     // initialise the SHA-2 state
     let mut hash: Sha256 = Sha256::new();
@@ -63,22 +59,22 @@ pub fn h_msg(
     let digest = hash.finalize(); // finalise the digest
 
     // construct the MGF1 seed (R || PK.seed || digest || counter)
-    let mut seed: Vec<u8> = Vec::with_capacity(2*PARAMS.spx_n + SHA256_OUT + 4);
+    let mut seed: Vec<u8> = Vec::with_capacity(2*N + SHA256_OUT + 4);
     seed.extend_from_slice(r);         // set the message randomiser
     seed.extend_from_slice(pk_seed);   // set PK.seed
     seed.extend_from_slice(&digest);   // set the digest from the inner hash
     seed.extend_from_slice(&[0u8; 4]); // set the counter, initially zero
 
     // get the required number of hash outputs
-    let num_hashes: usize = (PARAMS.spx_m() + SHA256_OUT - 1) / SHA256_OUT;
+    let num_hashes: usize = (M + SHA256_OUT - 1) / SHA256_OUT;
 
     // declare the output array
-    let mut out: [u8; PARAMS.spx_m()] = [0u8; PARAMS.spx_m()];
+    let mut out: [u8; M] = [0u8; M];
 
     for hash_nr in 0..num_hashes {
 
         let counter: [u8; 4] = (hash_nr as u32).to_be_bytes(); // MGF1 counter is a 32-bit big-endian integer
-        seed[2 * PARAMS.spx_n + SHA256_OUT..].copy_from_slice(&counter); // write the counter to the input buffer
+        seed[2 * N + SHA256_OUT..].copy_from_slice(&counter); // write the counter to the input buffer
 
         let mut hash = Sha256::new(); // initialise the SHA-2 state
 
@@ -87,7 +83,7 @@ pub fn h_msg(
         let digest = hash.finalize(); // finalise the digest
 
         let offset: usize = hash_nr * SHA256_OUT;             // find the offset to write to in the output array
-        let remaining: usize = PARAMS.spx_m() - offset;       // compute how many bytes are left to fill
+        let remaining: usize = M - offset;       // compute how many bytes are left to fill
         let bytes_to_copy: usize = remaining.min(SHA256_OUT); // compute how many bytes to copy to the output
 
         // copy (and truncate) the digest to the output
@@ -99,11 +95,11 @@ pub fn h_msg(
 
 // PRF_msg(SK.prf, optrand, M) = Trunc_n(HMAC-SHA-256(SK.prf, optrand || M))
 pub fn prf_msg(
-    sk_prf: &[u8; PARAMS.spx_n],  // SK.prf
-    optrand: &[u8; PARAMS.spx_n], // (optional) additional randomness
+    sk_prf: &[u8; N],  // SK.prf
+    optrand: &[u8; N], // (optional) additional randomness
     context: &[u8],               // context string
     message: &[u8],               // message to be signed
-) -> [u8; PARAMS.spx_n] {
+) -> [u8; N] {
     type HmacSha256 = Hmac<Sha256>;
 
     // initialise the HMAC with SK.prf as key
@@ -117,19 +113,19 @@ pub fn prf_msg(
 
     let hmac = mac.finalize().into_bytes(); // finalise the digest
 
-    // truncate the digest to PARAMS.spx_n bytes
-    let mut trunc: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    trunc.copy_from_slice(&hmac[..PARAMS.spx_n]);
+    // truncate the digest to N bytes
+    let mut trunc: [u8; N] = [0u8; N];
+    trunc.copy_from_slice(&hmac[..N]);
 
     trunc
 }
 
 // PRF(PK.seed, SK.seed, ADRS) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || SK.seed))
 pub fn prf(
-    pk_seed: &[u8; PARAMS.spx_n], // PK.seed
-    sk_seed: &[u8; PARAMS.spx_n], // SK.seed
+    pk_seed: &[u8; N], // PK.seed
+    sk_seed: &[u8; N], // SK.seed
     adrs: &Adrs,                  // ADRS
-) -> [u8; PARAMS.spx_n] {
+) -> [u8; N] {
 
     // hash input setup
     let adrsc: [u8; 22] = adrs.compress(); // compress ADRS to ADRS^c
@@ -144,9 +140,9 @@ pub fn prf(
     // finalise the digest computation
     let digest = hash.finalize();
 
-    // truncate the digest to PARAMS.spx_n bytes
-    let mut trunc: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    trunc.copy_from_slice(&digest[..PARAMS.spx_n]);
+    // truncate the digest to N bytes
+    let mut trunc: [u8; N] = [0u8; N];
+    trunc.copy_from_slice(&digest[..N]);
 
     // return the truncated digest
     trunc
@@ -154,10 +150,10 @@ pub fn prf(
 
 // F(PK.seed, ADRS, M_1) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_1))
 pub fn f(
-    pk_seed: &[u8; PARAMS.spx_n], // PK.seed
+    pk_seed: &[u8; N], // PK.seed
     adrs: &Adrs,                  // ADRS
-    m: &[u8; PARAMS.spx_n],       // input message
-) -> [u8; PARAMS.spx_n] {
+    m: &[u8; N],       // input message
+) -> [u8; N] {
 
     // hash input setup
     let adrsc: [u8; 22] = adrs.compress(); // compress ADRS to ADRS^c
@@ -172,9 +168,9 @@ pub fn f(
     // finalise the digest computation
     let digest = hash.finalize();
 
-    // truncate the digest to PARAMS.spx_n bytes
-    let mut trunc: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    trunc.copy_from_slice(&digest[..PARAMS.spx_n]);
+    // truncate the digest to N bytes
+    let mut trunc: [u8; N] = [0u8; N];
+    trunc.copy_from_slice(&digest[..N]);
 
     // return the truncated digest
     trunc
@@ -182,11 +178,11 @@ pub fn f(
 
 // H(PK.seed, ADRS, M_2) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_2))
 pub fn h(
-    pk_seed: &[u8; PARAMS.spx_n], // PK.seed
+    pk_seed: &[u8; N], // PK.seed
     adrs: &Adrs,                  // ADRS
-    m1: &[u8; PARAMS.spx_n],      // 1st input message
-    m2: &[u8; PARAMS.spx_n],      // 2nd input message
-) -> [u8; PARAMS.spx_n] {
+    m1: &[u8; N],      // 1st input message
+    m2: &[u8; N],      // 2nd input message
+) -> [u8; N] {
 
     // hash input setup
     let adrsc: [u8; 22] = adrs.compress(); // compress ADRS to ADRS^c
@@ -202,9 +198,9 @@ pub fn h(
     // finalise the digest computation
     let digest = hash.finalize();
 
-    // truncate the digest to PARAMS.spx_n bytes
-    let mut trunc: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    trunc.copy_from_slice(&digest[..PARAMS.spx_n]);
+    // truncate the digest to N bytes
+    let mut trunc: [u8; N] = [0u8; N];
+    trunc.copy_from_slice(&digest[..N]);
 
     // return the truncated digest
     trunc
@@ -212,9 +208,9 @@ pub fn h(
 
 // H_2(PK.seed, ADRS, md, ctr) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || md || ctr))
 pub fn h2(
-    pk_seed: &[u8; PARAMS.spx_n], // PK.seed
+    pk_seed: &[u8; N], // PK.seed
     adrs: &Adrs,                  // ADRS
-    md: &[u8; PARAMS.spx_n],      // message digest
+    md: &[u8; N],      // message digest
     ctr: u32,                     // counter
 ) -> Vec<u32> { // -> set of k indices = 0..(t choose k)
 
@@ -234,13 +230,13 @@ pub fn h2(
     let mut reader = hash.finalize_xof();
 
     // map the output to spx_k unique indices in 0..spx_t (= [t] choose k)
-    let mut indices: Vec<u32> = Vec::with_capacity(PARAMS.spx_k);
+    let mut indices: Vec<u32> = Vec::with_capacity(K);
 
     // largest multiple of spx_t that fits in u32
-    let limit: u32 = u32::MAX - (u32::MAX % (PARAMS.spx_t as u32));
+    let limit: u32 = u32::MAX - (u32::MAX % (T as u32));
 
     // keep deterministically generating indices from the output stream until there are enough unique indices
-    while indices.len() < PARAMS.spx_k {
+    while indices.len() < K {
 
         // read four bytes of output
         let mut buf: [u8; 4] = [0u8; 4];
@@ -253,7 +249,7 @@ pub fn h2(
         if x >= limit { continue; }
 
         // compute the resulting index
-        let index: u32 = x % (PARAMS.spx_t as u32);
+        let index: u32 = x % (T as u32);
 
         // only add the index if it is not already present
         if !indices.contains(&index) {
@@ -266,10 +262,10 @@ pub fn h2(
 
 // T_v(PK.seed, ADRS, M_v) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_v))
 pub fn t_v(
-    pk_seed: &[u8; PARAMS.spx_n], // PK.seed
+    pk_seed: &[u8; N], // PK.seed
     adrs: &Adrs,                  // ADRS
-    chains: &[u8; PARAMS.spx_v()*PARAMS.spx_n], // concatenation of all chain end values in a WOTS instance
-) -> [u8; PARAMS.spx_n] {
+    chains: &[u8; V*N], // concatenation of all chain end values in a WOTS instance
+) -> [u8; N] {
 
     // hash input setup
     let adrsc: [u8; 22] = adrs.compress(); // compress ADRS to ADRS^c
@@ -284,9 +280,9 @@ pub fn t_v(
     // finalise the digest computation
     let digest = hash.finalize();
 
-    // truncate the digest to PARAMS.spx_n bytes
-    let mut trunc: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    trunc.copy_from_slice(&digest[..PARAMS.spx_n]);
+    // truncate the digest to N bytes
+    let mut trunc: [u8; N] = [0u8; N];
+    trunc.copy_from_slice(&digest[..N]);
 
     // return the truncated digest
     trunc

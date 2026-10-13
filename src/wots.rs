@@ -7,9 +7,10 @@
  * author: Dennis op 't Roodt 2026-10-12 (d.n.e.o.t.roodt@tue.nl)
  */
 
-use crate::params::PARAMS;  // the SPHINCS+V parameters
 use crate::adrs::Adrs;      // ADRS data structure
 use crate::adrs::adrs_type; // ADRS type constants
+
+use crate::params::{N, V, WOTS_SIG}; // parameter values
 
 use crate::tweakable_hashes::{f, t_v}; // hash function instantiations
 
@@ -19,7 +20,7 @@ use crate::u256::*; // WOTS+ parameter computation stuff
  
 fn map_to_vertex(
     _x: usize, // input message
-) -> [usize; PARAMS.spx_v()] {
+) -> [usize; V] {
 
     // 1. set x_i = x and d_1 = PARAMS.d0
 
@@ -37,15 +38,15 @@ fn map_to_vertex(
 
     // 4. output (a_1, a_2, ..., a_v)
 
-    let a: [usize; PARAMS.spx_v()] = [0; PARAMS.spx_v()];
+    let a: [usize; V] = [0; V];
 
     a
     
 }
  
 fn top_single_layer(
-    _msg: [u8; PARAMS.spx_n], // input message
-) -> [usize; PARAMS.spx_v()] {
+    _msg: [u8; N], // input message
+) -> [usize; V] {
 
     // translate msg to x, which is in {0, 1, ..., w^v-1}
 
@@ -54,7 +55,7 @@ fn top_single_layer(
 
     // output a = map_to_vertex(x)
 
-    let a: [usize; PARAMS.spx_v()] = [0; PARAMS.spx_v()];
+    let a: [usize; V] = [0; V];
 
     a
 
@@ -67,17 +68,17 @@ fn top_single_layer(
 | Chaining function used in WOTS+.                             |
 +-------------------------------------------------------------*/
 fn chain(
-    mut _out: [u8; PARAMS.spx_n],  // out: hash of previous chain value (also input: chain is in-place)
+    mut _out: [u8; N],  // out: hash of previous chain value (also input: chain is in-place)
     _i: u32,                       // position in the chain
     _steps: u32,                   // number of hash evaluations to do
-    _pk_seed: &[u8; PARAMS.spx_n], // PK.seed
+    _pk_seed: &[u8; N], // PK.seed
     mut _adrs: Adrs,               // ADRS
-) -> [u8; PARAMS.spx_n] // -> out
+) -> [u8; N] // -> out
 {
 
 
 
-    _out = [0u8; PARAMS.spx_n];
+    _out = [0u8; N];
 
     _out
 }
@@ -87,15 +88,15 @@ fn chain(
 | Generates a WOTS+ public key.                                |
 +-------------------------------------------------------------*/
 pub fn wots_pkgen(
-    _sk_seed: &[u8; PARAMS.spx_n], // SK.seed
-    _pk_seed: &[u8; PARAMS.spx_n], // PK.seed
+    _sk_seed: &[u8; N], // SK.seed
+    _pk_seed: &[u8; N], // PK.seed
     mut _adrs: Adrs,               // ADRS
-) -> [u8; PARAMS.spx_n] // -> pk
+) -> [u8; N] // -> pk
 {
 
 
 
-    let pk: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
+    let pk: [u8; N] = [0u8; N];
 
     pk
 }
@@ -105,16 +106,16 @@ pub fn wots_pkgen(
 | Generates a WOTS+ signature on an n-byte message.            |
 +-------------------------------------------------------------*/
 pub fn wots_sign(
-    _m: &[u8; PARAMS.spx_n],       // message to sign (XMSS tree root or PORS+FP public key)
-    _sk_seed: &[u8; PARAMS.spx_n], // SK.seed
-    _pk_seed: &[u8; PARAMS.spx_n], // PK.seed
+    _m: &[u8; N],       // message to sign (XMSS tree root or PORS+FP public key)
+    _sk_seed: &[u8; N], // SK.seed
+    _pk_seed: &[u8; N], // PK.seed
     mut _adrs: Adrs,               // ADRS
-) -> [u8; PARAMS.wots_sig()] // -> sig_wots
+) -> [u8; WOTS_SIG] // -> sig_wots
 {
 
 
 
-    let sig_wots: [u8; PARAMS.wots_sig()] = [0u8; PARAMS.wots_sig()];
+    let sig_wots: [u8; WOTS_SIG] = [0u8; WOTS_SIG];
 
     sig_wots
 }
@@ -125,16 +126,16 @@ pub fn wots_sign(
 | signature.                                                   |
 +-------------------------------------------------------------*/
 pub fn wots_pkfromsig(
-    _sig_wots: &[u8; PARAMS.wots_sig()], // WOTS+ signature
-    _m: &[u8; PARAMS.spx_n],             // message (XMSS root or FORS public key)
-    _pk_seed: &[u8; PARAMS.spx_n],       // PK.seed
+    _sig_wots: &[u8; WOTS_SIG], // WOTS+ signature
+    _m: &[u8; N],             // message (XMSS root or FORS public key)
+    _pk_seed: &[u8; N],       // PK.seed
     mut _adrs: Adrs,                     // ADRS
-) -> [u8; PARAMS.spx_n] // -> pk_wots
+) -> [u8; N] // -> pk_wots
 {
 
 
 
-    let pk_wots: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
+    let pk_wots: [u8; N] = [0u8; N];
 
     pk_wots
 }

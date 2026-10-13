@@ -4,9 +4,10 @@
  * author: Dennis op 't Roodt 2026-10-12 (d.n.e.o.t.roodt@tue.nl)
  */
 
-use crate::params::PARAMS;  // the SPHINCS+V parameters
 use crate::adrs::Adrs;      // ADRS data structure
 use crate::adrs::adrs_type; // ADRS type constants
+
+use crate::params::{N, H_PRIME, H_BAR, XMSS_TREE_SIZE, WOTS_SIG, XMSS_SIG}; // parameter values
 
 use crate::tweakable_hashes::{h}; // hash function instantiations
 
@@ -30,7 +31,7 @@ fn flat_tree_idx(
     (i, z): (u32, u32), // node
 ) -> usize {
     // flat_tree_idx = 2^(h'+1) - 2^(h'+1-z) + i
-    ((1 << (PARAMS.spx_h_bar() + 1)) - (1 << (PARAMS.spx_h_bar() + 1 - (z as usize))) + i) as usize
+    ((1 << (H_BAR + 1)) - (1 << (H_BAR + 1 - (z as usize))) + i) as usize
 }
 
 //////////////////////// MAIN FUNCTIONS ////////////////////////
@@ -41,18 +42,19 @@ fn flat_tree_idx(
 | (iterative instead of recursive)                             |
 +-------------------------------------------------------------*/
 pub fn xmss_node(
-    sk_seed: &[u8; PARAMS.spx_n], // SK.seed
-    i_target: u32,                // target node index (horizontal)
-    z_target: u32,                // target node height
-    pk_seed: &[u8; PARAMS.spx_n], // PK.seed
-    mut adrs: Adrs,               // ADRS
-) -> [u8; PARAMS.spx_n] // -> root
+    sk_seed: &[u8; N], // SK.seed
+    i_target: u32,     // target node index (horizontal)
+    z_target: u32,     // target node height
+    pk_seed: &[u8; N], // PK.seed
+    mut adrs: Adrs,    // ADRS
+) -> [u8; N] // -> root
 {
 
     // array buffer with enough place to fit the entire (flattened) XMSS tree
     // note that for efficiency only those nodes are computed that are needed
     // to find the target node, so not necessarily the entire buffer is filled
-    let mut flat_tree: [u8; PARAMS.xmss_tree_size() * PARAMS.spx_n] = [0u8; PARAMS.xmss_tree_size() * PARAMS.spx_n];
+    // TODO replace this naive approach with something like TreeHash
+    let mut flat_tree: [u8; XMSS_TREE_SIZE * N] = [0u8; XMSS_TREE_SIZE * N];
 
     // iterate over the layers, bottom to top
     for z in 0..z_target+1 {
@@ -75,14 +77,14 @@ pub fn xmss_node(
             } else { // internal node: the node value is the hash of its two children lnode and rnode
 
                 // get the left child
-                let mut idx: usize = flat_tree_idx(lchild((i, z))) * PARAMS.spx_n;
-                let mut lnode: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-                lnode.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]);
+                let mut idx: usize = flat_tree_idx(lchild((i, z))) * N;
+                let mut lnode: [u8; N] = [0u8; N];
+                lnode.copy_from_slice(&flat_tree[idx..idx+N]);
 
                 // get the right child
-                idx += PARAMS.spx_n;
-                let mut rnode: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-                rnode.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]);
+                idx += N;
+                let mut rnode: [u8; N] = [0u8; N];
+                rnode.copy_from_slice(&flat_tree[idx..idx+N]);
 
                 // compute the relevant ADRS
                 adrs.set_type_and_clear(adrs_type::TREE); // set the correct type for computing XMSS internal nodes
@@ -90,13 +92,13 @@ pub fn xmss_node(
                 adrs.set_tree_height(z); // set the tree height
 
                 // compute node = H(PK.seed, ADRS, lnode, rnode)
-                let node: [u8; PARAMS.spx_n] = h(pk_seed, &adrs, &lnode, &rnode);
+                let node: [u8; N] = h(pk_seed, &adrs, &lnode, &rnode);
 
                 // compute the byte offset of node (i, z) in the flattened tree
-                let idx: usize = flat_tree_idx((i, z)) * PARAMS.spx_n;
+                let idx: usize = flat_tree_idx((i, z)) * N;
 
                 // set the internal node in the flattened tree
-                flat_tree[idx..idx+PARAMS.spx_n].copy_from_slice(&node);
+                flat_tree[idx..idx+N].copy_from_slice(&node);
 
             }
 
@@ -105,9 +107,9 @@ pub fn xmss_node(
     }
 
     // get the root of the subtree at (i_target, z_target)
-    let idx: usize = flat_tree_idx((i_target, z_target)) * PARAMS.spx_n; // compute the byte offset of node (i_target, z_target) in the flattened tree
-    let mut node: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n]; // declare the subtree root value array
-    node.copy_from_slice(&flat_tree[idx..idx+PARAMS.spx_n]); // copy the subtree root from the flattened tree
+    let idx: usize = flat_tree_idx((i_target, z_target)) * N; // compute the byte offset of node (i_target, z_target) in the flattened tree
+    let mut node: [u8; N] = [0u8; N]; // declare the subtree root value array
+    node.copy_from_slice(&flat_tree[idx..idx+N]); // copy the subtree root from the flattened tree
 
     node
 }
@@ -117,28 +119,28 @@ pub fn xmss_node(
 | Generates an XMSS signature.                                 |
 +-------------------------------------------------------------*/
 pub fn xmss_sign(
-    m: &[u8; PARAMS.spx_n],       // message to sign (XMSS public key or FORS public key)
-    sk_seed: &[u8; PARAMS.spx_n], // SK.seed
-    idx: u32,                     // WOTS+ leaf index to sign with
-    pk_seed: &[u8; PARAMS.spx_n], // PK.seed
-    mut adrs: Adrs,               // ADRS
-) -> [u8; PARAMS.xmss_sig()] // -> sig_xmss
+    m: &[u8; N],       // message to sign (XMSS public key or PORS+FP public key)
+    sk_seed: &[u8; N], // SK.seed
+    idx: u32,          // WOTS+ leaf index to sign with
+    pk_seed: &[u8; N], // PK.seed
+    mut adrs: Adrs,    // ADRS
+) -> [u8; XMSS_SIG] // -> sig_xmss
 {
 
     // initialise the XMSS signature
-    let mut sig_xmss: [u8; PARAMS.xmss_sig()] = [0u8; PARAMS.xmss_sig()];
+    let mut sig_xmss: [u8; XMSS_SIG] = [0u8; XMSS_SIG];
 
     // compute the sibling node's horizontal index
     let mut k: u32 = idx ^ 1;
 
     // compute and store the authentication path AUTH
-    for z in 0..PARAMS.spx_h_prime() {
+    for z in 0..H_PRIME {
         
         // compute the sibling node
-        let auth_node: [u8; PARAMS.spx_n] = xmss_node(&sk_seed, k, z as u32, &pk_seed, adrs);
+        let auth_node: [u8; N] = xmss_node(&sk_seed, k, z as u32, &pk_seed, adrs);
 
         // store the sibling node in the XMSS signature
-        sig_xmss[PARAMS.wots_sig()+z*PARAMS.spx_n .. PARAMS.wots_sig()+(z+1)*PARAMS.spx_n].copy_from_slice(&auth_node);
+        sig_xmss[WOTS_SIG+z*N .. WOTS_SIG+(z+1)*N].copy_from_slice(&auth_node);
         
         // update the sibling node's horizontal index for the next iteration
         k = (k >> 1) ^ 1;
@@ -150,10 +152,10 @@ pub fn xmss_sign(
     adrs.set_key_pair_addr(idx);
     
     // compute the WOTS+ signature on the XMSS or PORS+FP public key
-    let sig_wots: [u8; PARAMS.wots_sig()] = wots_sign(&m, &sk_seed, &pk_seed, adrs);
+    let sig_wots: [u8; WOTS_SIG] = wots_sign(&m, &sk_seed, &pk_seed, adrs);
 
     // store the WOTS+ signature in the XMSS signature
-    sig_xmss[0..PARAMS.wots_sig()].copy_from_slice(&sig_wots);
+    sig_xmss[0..WOTS_SIG].copy_from_slice(&sig_wots);
 
     sig_xmss
 }
@@ -163,12 +165,12 @@ pub fn xmss_sign(
 | Computes an XMSS public key from an XMSS signature.          |
 +-------------------------------------------------------------*/
 pub fn xmss_pkfromsig(
-    idx: u32,                           // WOTS+ leaf index to sign with
-    sig_xmss: &[u8; PARAMS.xmss_sig()], // XMSS signature
-    m: &[u8; PARAMS.spx_n],             // message to sign (XMSS public key or FORS public key)
-    pk_seed: &[u8; PARAMS.spx_n],       // PK.seed
-    mut adrs: Adrs,                     // ADRS
-) -> [u8; PARAMS.spx_n] // -> pk_xmss
+    idx: u32,                  // WOTS+ leaf index to sign with
+    sig_xmss: &[u8; XMSS_SIG], // XMSS signature
+    m: &[u8; N],               // message to sign (XMSS public key or PORS+FP public key)
+    pk_seed: &[u8; N],         // PK.seed
+    mut adrs: Adrs,            // ADRS
+) -> [u8; N] // -> pk_xmss
 {
 
     // set the correct values in ADRS for WOTS+ hashing
@@ -176,14 +178,14 @@ pub fn xmss_pkfromsig(
     adrs.set_key_pair_addr(idx);
 
     // separate the WOTS+ signature from the XMSS signature
-    let mut sig_wots: [u8; PARAMS.wots_sig()] = [0u8; PARAMS.wots_sig()];
-    sig_wots.copy_from_slice(&sig_xmss[0..PARAMS.wots_sig()]);
+    let mut sig_wots: [u8; WOTS_SIG] = [0u8; WOTS_SIG];
+    sig_wots.copy_from_slice(&sig_xmss[0..WOTS_SIG]);
 
     // initialise the node buffers used in the loop
-    let mut node0: [u8; PARAMS.spx_n];
-    let mut node1: [u8; PARAMS.spx_n];
-    let mut buf0: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    let mut buf1: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
+    let mut node0: [u8; N];
+    let mut node1: [u8; N];
+    let mut buf0: [u8; N] = [0u8; N];
+    let mut buf1: [u8; N] = [0u8; N];
     
     // compute the WOTS+ public key from the WOTS+ signature
     node0 = wots_pkfromsig(&sig_wots, &m, &pk_seed, adrs);
@@ -192,7 +194,7 @@ pub fn xmss_pkfromsig(
     adrs.set_type_and_clear(adrs_type::TREE);
     adrs.set_tree_index(idx);
 
-    for k in 0..PARAMS.spx_h_prime() {
+    for k in 0..H_PRIME {
 
         // set the parent node's height
         adrs.set_tree_height(k as u32 + 1);
@@ -207,7 +209,7 @@ pub fn xmss_pkfromsig(
 
             // buf = buf0 || buf1 = node0 || AUTH[k]
             buf0.copy_from_slice(&node0);
-            buf1.copy_from_slice(&sig_xmss[PARAMS.wots_sig() + k*PARAMS.spx_n .. PARAMS.wots_sig() + (k+1)*PARAMS.spx_n]);
+            buf1.copy_from_slice(&sig_xmss[WOTS_SIG + k*N .. WOTS_SIG + (k+1)*N]);
 
         } else { // floor(idx / 2^k) is odd
             
@@ -218,7 +220,7 @@ pub fn xmss_pkfromsig(
             adrs.set_tree_index(idx_tree);
 
             // buf = buf0 || buf1 = AUTH[k] || node0
-            buf0.copy_from_slice(&sig_xmss[PARAMS.wots_sig() + k*PARAMS.spx_n .. PARAMS.wots_sig() + (k+1)*PARAMS.spx_n]);
+            buf0.copy_from_slice(&sig_xmss[WOTS_SIG + k*N .. WOTS_SIG + (k+1)*N]);
             buf1.copy_from_slice(&node0);
 
         }
@@ -231,8 +233,7 @@ pub fn xmss_pkfromsig(
 
     }
 
-    let pk_xmss: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
+    let pk_xmss: [u8; N] = [0u8; N];
 
     pk_xmss
 }
-

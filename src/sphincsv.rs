@@ -4,9 +4,10 @@
  * author: Dennis op 't Roodt 2026-10-12 (d.n.e.o.t.roodt@tue.nl)
  */
 
-use crate::params::PARAMS;  // the SPHINCS+V parameters
 use crate::adrs::Adrs;      // ADRS data structure
 use crate::adrs::adrs_type; // ADRS type constants
+
+use crate::params::{N, H, D, H_PRIME, M, MD_LEN, IDX_TREE_LEN, IDX_LEAF_LEN, SKBYTES, PKBYTES, PORS_SIG, HT_SIG, SPXV_SIG}; // parameter values
 
 use crate::tweakable_hashes::{prf_msg, h_msg}; // hash function instantiations
 
@@ -19,15 +20,15 @@ use rand::RngExt; // for getting random keying material
 /////////////////////// HELPER FUNCTIONS ///////////////////////
 
 fn parse_indices(
-    tmp_idx_tree: [u8; PARAMS.spx_idx_tree_len()], // raw tree index data
-    tmp_idx_leaf: [u8; PARAMS.spx_idx_leaf_len()], // raw leaf index data
+    tmp_idx_tree: [u8; IDX_TREE_LEN], // raw tree index data
+    tmp_idx_leaf: [u8; IDX_LEAF_LEN], // raw leaf index data
 ) -> ([u32; 3], u32) {
 
     // initialise idx_tree to 0
     let mut idx_tree: [u32; 3] = [0u32; 3];
 
     // convert the byte string into a u32 array
-    for i in 0..PARAMS.spx_idx_tree_len() {
+    for i in 0..IDX_TREE_LEN {
 
         // shift the reference word left by eight bits, and insert the leftmost byte of the word to the right
         idx_tree[0] = (idx_tree[0] << 8) | (idx_tree[1] >> 24);
@@ -43,21 +44,21 @@ fn parse_indices(
     // compute idx_tree mod 2^(h-h'):
     // since the mod is a power of two, computing the mod result is the same as performing
     // an AND with a bitmask where the least-significant h-h' bits are 1
-    if PARAMS.spx_h-PARAMS.spx_h_prime() <= 32 {
+    if H-H_PRIME <= 32 {
         idx_tree[0] = 0;
         idx_tree[1] = 0;
-        idx_tree[2] &= (1 << (PARAMS.spx_h-PARAMS.spx_h_prime())) - 1;
-    } else if PARAMS.spx_h-PARAMS.spx_h_prime() <= 64 {
+        idx_tree[2] &= (1 << (H-H_PRIME)) - 1;
+    } else if H-H_PRIME <= 64 {
         idx_tree[0] = 0;
-        idx_tree[1] &= (1 << (PARAMS.spx_h-PARAMS.spx_h_prime()-32)) - 1;
-    } else { // PARAMS.spx_h-PARAMS.spx_h_prime() <= 96
-        idx_tree[0] &= (1 << (PARAMS.spx_h-PARAMS.spx_h_prime()-64)) - 1;
+        idx_tree[1] &= (1 << (H-H_PRIME-32)) - 1;
+    } else { // H-H_PRIME <= 96
+        idx_tree[0] &= (1 << (H-H_PRIME-64)) - 1;
     }
 
     // initialise idx_leaf to 0
     let mut idx_leaf: u32 = 0;
 
-    for i in 0..PARAMS.spx_idx_leaf_len() {
+    for i in 0..IDX_LEAF_LEN {
         // shift the word left by eight bits to make place for one byte,
         // and insert the next byte in those last eight bit positions
         idx_leaf = (idx_leaf << 8) | (tmp_idx_leaf[i] as u32);
@@ -66,7 +67,7 @@ fn parse_indices(
     // compute idx_leaf mod 2^(h'):
     // since the mod is a power of two, computing the mod result is the same as performing
     // an AND with a bitmask where the least-significant h-h' bits are 1
-    idx_leaf &= (1 << PARAMS.spx_h_prime()) - 1;
+    idx_leaf &= (1 << H_PRIME) - 1;
 
     (idx_tree, idx_leaf)
 }
@@ -78,39 +79,39 @@ fn parse_indices(
 | Generates a SPHINCS+V key pair.                              |
 +-------------------------------------------------------------*/
 fn sphincsv_keygen_internal(
-    keyrnd: &[u8; 3*PARAMS.spx_n], // key randomness
-) -> ([u8; PARAMS.spx_skbytes()], [u8; PARAMS.spx_pkbytes()]) {
+    keyrnd: &[u8; 3*N], // key randomness
+) -> ([u8; SKBYTES], [u8; PKBYTES]) {
 
-    let mut sk: [u8; PARAMS.spx_skbytes()] = [0u8; PARAMS.spx_skbytes()]; // secret key = [SK.seed, SK.prf, PK.seed, PK.root]
-    let mut pk: [u8; PARAMS.spx_pkbytes()] = [0u8; PARAMS.spx_pkbytes()]; // public key =                  [PK.seed, PK.root]
+    let mut sk: [u8; SKBYTES] = [0u8; SKBYTES]; // secret key = [SK.seed, SK.prf, PK.seed, PK.root]
+    let mut pk: [u8; PKBYTES] = [0u8; PKBYTES]; // public key =                  [PK.seed, PK.root]
 
     // copy SK.seed, SK.prf, and PK.seed from the given key randomness to SK
-    sk[0..3*PARAMS.spx_n].copy_from_slice(&keyrnd[0..3*PARAMS.spx_n]);
+    sk[0..3*N].copy_from_slice(&keyrnd[0..3*N]);
 
     // copy PK.seed from the given key randomness to PK
-    pk[0..PARAMS.spx_n].copy_from_slice(&keyrnd[2*PARAMS.spx_n..3*PARAMS.spx_n]);
+    pk[0..N].copy_from_slice(&keyrnd[2*N..3*N]);
 
     // separate the secret key components needed later
-    let mut sk_seed: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    let mut pk_seed: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    sk_seed.copy_from_slice(&sk[0*PARAMS.spx_n..1*PARAMS.spx_n]);
-    pk_seed.copy_from_slice(&sk[2*PARAMS.spx_n..3*PARAMS.spx_n]);
+    let mut sk_seed: [u8; N] = [0u8; N];
+    let mut pk_seed: [u8; N] = [0u8; N];
+    sk_seed.copy_from_slice(&sk[0*N..1*N]);
+    pk_seed.copy_from_slice(&sk[2*N..3*N]);
 
     // initialise ADRS
     let mut adrs: Adrs = Adrs::new();
 
     // set the layer address to the highest hypertree layer
-    adrs.set_layer_addr(PARAMS.spx_d as u32 - 1);
+    adrs.set_layer_addr(D as u32 - 1);
 
     // compute PK.root, which is the node in the top-most XMSS tree at
     // horizontal index i = 0 and height z = SPX_H_PRIME
     let i: u32 = 0u32;
-    let z: u32 = PARAMS.spx_h_prime() as u32;
-    let pkroot: [u8; PARAMS.spx_n] = xmss_node(&sk_seed, i, z, &pk_seed, adrs);
+    let z: u32 = H_PRIME as u32;
+    let pk_root: [u8; N] = xmss_node(&sk_seed, i, z, &pk_seed, adrs);
 
     // copy PK.root to SK and PK
-    sk[3*PARAMS.spx_n..4*PARAMS.spx_n].copy_from_slice(&pkroot);
-    pk[1*PARAMS.spx_n..2*PARAMS.spx_n].copy_from_slice(&pkroot);
+    sk[3*N..4*N].copy_from_slice(&pk_root);
+    pk[1*N..2*N].copy_from_slice(&pk_root);
 
     (sk, pk)
 }
@@ -120,13 +121,13 @@ fn sphincsv_keygen_internal(
 | Generates a SPHINCS+V key pair.                              |
 | Generates the randomness for sphincsv_keygen_internal.       |
 +-------------------------------------------------------------*/
-pub fn sphincsv_keygen() -> ([u8; PARAMS.spx_skbytes()], [u8; PARAMS.spx_pkbytes()]) {
+pub fn sphincsv_keygen() -> ([u8; SKBYTES], [u8; PKBYTES]) {
 
     // get a random number generator
     let mut rng: rand::prelude::ThreadRng = rand::rng();
 
     // generate the key randomness
-    let keyrnd: [u8; 3*PARAMS.spx_n] = rng.random();
+    let keyrnd: [u8; 3*N] = rng.random();
 
     // generate a SPHINCS+V key pair
     let (sk, pk) = sphincsv_keygen_internal(&keyrnd);
@@ -139,41 +140,41 @@ pub fn sphincsv_keygen() -> ([u8; PARAMS.spx_skbytes()], [u8; PARAMS.spx_pkbytes
 | Generates a SPHINCS+V signature.                             |
 +-------------------------------------------------------------*/
 fn sphincsv_sign_internal(
-    context: &[u8],                  // context string
-    message: &[u8],                  // message string
-    sk: &[u8; PARAMS.spx_skbytes()], // secret key
-    addrnd: &[u8; PARAMS.spx_n],     // additional randomness
-) -> [u8; PARAMS.spx_sig()] {
+    context: &[u8],     // context string
+    message: &[u8],     // message string
+    sk: &[u8; SKBYTES], // secret key
+    addrnd: &[u8; N],   // additional randomness
+) -> [u8; SPXV_SIG] {
 
     // declare the SPHINCS+V signature
-    let mut sig_sphincsv: [u8; PARAMS.spx_sig()] = [0u8; PARAMS.spx_sig()];
+    let mut sig_sphincsv: [u8; SPXV_SIG] = [0u8; SPXV_SIG];
 
     // separate the secret key components
-    let mut sk_seed: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    let mut sk_prf:  [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    let mut pk_seed: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    let mut pk_root: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    sk_seed.copy_from_slice(&sk[0*PARAMS.spx_n..1*PARAMS.spx_n]);
-    sk_prf .copy_from_slice(&sk[1*PARAMS.spx_n..2*PARAMS.spx_n]);
-    pk_seed.copy_from_slice(&sk[2*PARAMS.spx_n..3*PARAMS.spx_n]);
-    pk_root.copy_from_slice(&sk[3*PARAMS.spx_n..4*PARAMS.spx_n]);
+    let mut sk_seed: [u8; N] = [0u8; N];
+    let mut sk_prf:  [u8; N] = [0u8; N];
+    let mut pk_seed: [u8; N] = [0u8; N];
+    let mut pk_root: [u8; N] = [0u8; N];
+    sk_seed.copy_from_slice(&sk[0*N..1*N]);
+    sk_prf .copy_from_slice(&sk[1*N..2*N]);
+    pk_seed.copy_from_slice(&sk[2*N..3*N]);
+    pk_root.copy_from_slice(&sk[3*N..4*N]);
 
     // compute the message randomiser
-    let r: [u8; PARAMS.spx_n] = prf_msg(&sk_prf, &addrnd, &context, &message);
+    let r: [u8; N] = prf_msg(&sk_prf, &addrnd, &context, &message);
 
     // write the message randomiser to the signature
-    sig_sphincsv[0..PARAMS.spx_n].copy_from_slice(&r);
+    sig_sphincsv[0..N].copy_from_slice(&r);
 
     // compute the message digest
-    let digest: [u8; PARAMS.spx_m()] = h_msg(&r, &pk_seed, &pk_root, &context, &message);
+    let digest: [u8; M] = h_msg(&r, &pk_seed, &pk_root, &context, &message);
 
     // extract md, tmp_idx_tree, and tmp_idx_leaf from digest
-    let mut md:           [u8; PARAMS.spx_md_len()]       = [0u8; PARAMS.spx_md_len()];
-    let mut tmp_idx_tree: [u8; PARAMS.spx_idx_tree_len()] = [0u8; PARAMS.spx_idx_tree_len()];
-    let mut tmp_idx_leaf: [u8; PARAMS.spx_idx_leaf_len()] = [0u8; PARAMS.spx_idx_leaf_len()];
-    md          .copy_from_slice(&digest[0                                             .. PARAMS.spx_md_len()                                                    ]);
-    tmp_idx_tree.copy_from_slice(&digest[PARAMS.spx_md_len()                           .. PARAMS.spx_md_len()+PARAMS.spx_idx_tree_len()                          ]);
-    tmp_idx_leaf.copy_from_slice(&digest[PARAMS.spx_md_len()+PARAMS.spx_idx_tree_len() .. PARAMS.spx_md_len()+PARAMS.spx_idx_tree_len()+PARAMS.spx_idx_leaf_len()]);
+    let mut md:           [u8; MD_LEN]       = [0u8; MD_LEN];
+    let mut tmp_idx_tree: [u8; IDX_TREE_LEN] = [0u8; IDX_TREE_LEN];
+    let mut tmp_idx_leaf: [u8; IDX_LEAF_LEN] = [0u8; IDX_LEAF_LEN];
+    md          .copy_from_slice(&digest[0                     .. MD_LEN                              ]);
+    tmp_idx_tree.copy_from_slice(&digest[MD_LEN                .. MD_LEN + IDX_TREE_LEN               ]);
+    tmp_idx_leaf.copy_from_slice(&digest[MD_LEN + IDX_TREE_LEN .. MD_LEN + IDX_TREE_LEN + IDX_LEAF_LEN]);
 
     // compute idx_tree and idx_leaf from tmp_idx_tree and tmp_idx_leaf
     let (idx_tree, idx_leaf) = parse_indices(tmp_idx_tree, tmp_idx_leaf);
@@ -187,19 +188,19 @@ fn sphincsv_sign_internal(
     adrs.set_key_pair_addr(idx_leaf); // leaf index of the XMSS tree that will sign the PORS+FP public key
 
     // compute the PORS+FP signature
-    let sig_porsfp: [u8; PARAMS.porsfp_sig()] = porsfp_sign(&md, &sk_seed, &pk_seed, &mut adrs);
+    let sig_porsfp: [u8; PORS_SIG] = porsfp_sign(&md, &sk_seed, &pk_seed, &mut adrs);
 
     // write the PORS+FP signature to the SPHINCS+V signature
-    sig_sphincsv[PARAMS.spx_n..PARAMS.spx_n+PARAMS.porsfp_sig()].copy_from_slice(&sig_porsfp);
+    sig_sphincsv[N..N+PORS_SIG].copy_from_slice(&sig_porsfp);
 
     // compute the PORS+FP public key based on the PORS+FP signature
-    let pk_porsfp: [u8; PARAMS.spx_n] = porsfp_pkfromsig(&sig_porsfp, &md, &pk_seed, &mut adrs);
+    let pk_porsfp: [u8; N] = porsfp_pkfromsig(&sig_porsfp, &md, &pk_seed, &mut adrs);
 
     // compute the hypertree signature on the PORS+FP public key
-    let sig_ht: [u8; PARAMS.ht_sig()] = ht_sign(&pk_porsfp, &sk_seed, &pk_seed, idx_tree, idx_leaf);
+    let sig_ht: [u8; HT_SIG] = ht_sign(&pk_porsfp, &sk_seed, &pk_seed, idx_tree, idx_leaf);
 
     // write the PORS+FP signature to the SPHINCS+V signature
-    sig_sphincsv[PARAMS.spx_n+PARAMS.porsfp_sig()..PARAMS.spx_n+PARAMS.porsfp_sig()+PARAMS.ht_sig()].copy_from_slice(&sig_ht);
+    sig_sphincsv[N+PORS_SIG..N+PORS_SIG+HT_SIG].copy_from_slice(&sig_ht);
 
     sig_sphincsv
 }
@@ -210,21 +211,21 @@ fn sphincsv_sign_internal(
 | Generates the randomness needed for sphincsv_sign_internal   |
 +-------------------------------------------------------------*/
 pub fn sphincsv_sign (
-    context: &[u8],                  // context string
-    message: &[u8],                  // message string
-    sk: &[u8; PARAMS.spx_skbytes()], // secret key
-    deterministic: bool,             // whether to use addrnd = PK.seed (else addrnd = randombytes)
-) -> [u8; PARAMS.spx_sig()] {
+    context: &[u8],      // context string
+    message: &[u8],      // message string
+    sk: &[u8; SKBYTES],  // secret key
+    deterministic: bool, // whether to use addrnd = PK.seed (else addrnd = randombytes)
+) -> [u8; SPXV_SIG] {
 
     // assert that the context string is not too long
     assert!(context.len() <= 255, "\x1b[1;91mContext string length of {} does not satisfy {} <= 255\x1b[0m", context.len(), context.len());
 
     // declare the additional randomness
-    let mut addrnd: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
+    let mut addrnd: [u8; N] = [0u8; N];
 
     if deterministic {
 
-        addrnd.copy_from_slice(&sk[2*PARAMS.spx_n..3*PARAMS.spx_n]);
+        addrnd.copy_from_slice(&sk[2*N..3*N]);
 
     } else {
 
@@ -236,7 +237,7 @@ pub fn sphincsv_sign (
 
     }
 
-    let sig_sphincsv: [u8; PARAMS.spx_sig()] = sphincsv_sign_internal(&context, &message, &sk, &addrnd);
+    let sig_sphincsv: [u8; SPXV_SIG] = sphincsv_sign_internal(&context, &message, &sk, &addrnd);
 
     sig_sphincsv
 }
@@ -246,32 +247,32 @@ pub fn sphincsv_sign (
 | Verifies a SPHINCS+V signature.                              |
 +-------------------------------------------------------------*/
 fn sphincsv_verify_internal(
-    context: &[u8],                        // context string
-    message: &[u8],                        // message string
-    sig_sphincsv: &[u8; PARAMS.spx_sig()], // SPHINCS+V signature
-    pk: &[u8; PARAMS.spx_pkbytes()],       // public key
+    context: &[u8],                // context string
+    message: &[u8],                // message string
+    sig_sphincsv: &[u8; SPXV_SIG], // SPHINCS+V signature
+    pk: &[u8; PKBYTES],            // public key
 ) -> bool {
 
     // separate the public key components
-    let mut pk_seed: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    let mut pk_root: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    pk_seed.copy_from_slice(&pk[0*PARAMS.spx_n..1*PARAMS.spx_n]);
-    pk_root.copy_from_slice(&pk[1*PARAMS.spx_n..2*PARAMS.spx_n]);
+    let mut pk_seed: [u8; N] = [0u8; N];
+    let mut pk_root: [u8; N] = [0u8; N];
+    pk_seed.copy_from_slice(&pk[0*N..1*N]);
+    pk_root.copy_from_slice(&pk[1*N..2*N]);
     
     // extract the message randomiser r from the overall signature
-    let mut r: [u8; PARAMS.spx_n] = [0u8; PARAMS.spx_n];
-    r.copy_from_slice(&sig_sphincsv[0..PARAMS.spx_n]);
+    let mut r: [u8; N] = [0u8; N];
+    r.copy_from_slice(&sig_sphincsv[0..N]);
 
     // compute the message digest
-    let digest: [u8; PARAMS.spx_m()] = h_msg(&r, &pk_seed, &pk_root, &context, &message);
+    let digest: [u8; M] = h_msg(&r, &pk_seed, &pk_root, &context, &message);
 
     // extract md, tmp_idx_tree, and tmp_idx_leaf from digest
-    let mut md:           [u8; PARAMS.spx_md_len()]       = [0u8; PARAMS.spx_md_len()];
-    let mut tmp_idx_tree: [u8; PARAMS.spx_idx_tree_len()] = [0u8; PARAMS.spx_idx_tree_len()];
-    let mut tmp_idx_leaf: [u8; PARAMS.spx_idx_leaf_len()] = [0u8; PARAMS.spx_idx_leaf_len()];
-    md          .copy_from_slice(&digest[0                                             .. PARAMS.spx_md_len()                                                    ]);
-    tmp_idx_tree.copy_from_slice(&digest[PARAMS.spx_md_len()                           .. PARAMS.spx_md_len()+PARAMS.spx_idx_tree_len()                          ]);
-    tmp_idx_leaf.copy_from_slice(&digest[PARAMS.spx_md_len()+PARAMS.spx_idx_tree_len() .. PARAMS.spx_md_len()+PARAMS.spx_idx_tree_len()+PARAMS.spx_idx_leaf_len()]);
+    let mut md:           [u8; MD_LEN]       = [0u8; MD_LEN];
+    let mut tmp_idx_tree: [u8; IDX_TREE_LEN] = [0u8; IDX_TREE_LEN];
+    let mut tmp_idx_leaf: [u8; IDX_LEAF_LEN] = [0u8; IDX_LEAF_LEN];
+    md          .copy_from_slice(&digest[0                     .. MD_LEN                              ]);
+    tmp_idx_tree.copy_from_slice(&digest[MD_LEN                .. MD_LEN + IDX_TREE_LEN               ]);
+    tmp_idx_leaf.copy_from_slice(&digest[MD_LEN + IDX_TREE_LEN .. MD_LEN + IDX_TREE_LEN + IDX_LEAF_LEN]);
 
     // compute idx_tree and idx_leaf from tmp_idx_tree and tmp_idx_leaf
     let (idx_tree, idx_leaf) = parse_indices(tmp_idx_tree, tmp_idx_leaf);
@@ -285,15 +286,15 @@ fn sphincsv_verify_internal(
     adrs.set_key_pair_addr(idx_leaf); // Leaf index of the XMSS tree that will sign the PORS+FP public key
     
     // extract the PORS+FP signature from the overall signature
-    let mut sig_porsfp: [u8; PARAMS.porsfp_sig()] = [0u8; PARAMS.porsfp_sig()];
-    sig_porsfp.copy_from_slice(&sig_sphincsv[PARAMS.spx_n .. PARAMS.spx_n + PARAMS.porsfp_sig()]);
+    let mut sig_porsfp: [u8; PORS_SIG] = [0u8; PORS_SIG];
+    sig_porsfp.copy_from_slice(&sig_sphincsv[N .. N + PORS_SIG]);
     
     // compute the PORS+FP public key based on the PORS+FP signature
-    let pk_porsfp: [u8; PARAMS.spx_n] = porsfp_pkfromsig(&sig_porsfp, &md, &pk_seed, &mut adrs);
+    let pk_porsfp: [u8; N] = porsfp_pkfromsig(&sig_porsfp, &md, &pk_seed, &mut adrs);
     
     // extract the HT signature from the overall signature
-    let mut sig_ht: [u8; PARAMS.ht_sig()] = [0u8; PARAMS.ht_sig()];
-    sig_ht.copy_from_slice(&sig_sphincsv[PARAMS.spx_n + PARAMS.porsfp_sig() .. PARAMS.spx_n + PARAMS.porsfp_sig() + PARAMS.ht_sig()]);
+    let mut sig_ht: [u8; HT_SIG] = [0u8; HT_SIG];
+    sig_ht.copy_from_slice(&sig_sphincsv[N + PORS_SIG .. N + PORS_SIG + HT_SIG]);
 
     // verify the hypertree signature on the PORS+FP public key
     let res: bool = ht_verify(&pk_porsfp, &sig_ht, &pk_seed, idx_tree, idx_leaf, &pk_root);
@@ -306,10 +307,10 @@ fn sphincsv_verify_internal(
 | Verifies a pure SPHINCS+V signature.                         |
 +-------------------------------------------------------------*/
 pub fn sphincsv_verify(
-    context: &[u8],                        // context string
-    message: &[u8],                        // message string
-    sig_sphincsv: &[u8; PARAMS.spx_sig()], // SPHINCS+V signature
-    pk: &[u8; PARAMS.spx_pkbytes()],       // public key
+    context: &[u8],                // context string
+    message: &[u8],                // message string
+    sig_sphincsv: &[u8; SPXV_SIG], // SPHINCS+V signature
+    pk: &[u8; PKBYTES],            // public key
 ) -> bool {
 
     // assert that the context string is not too long
@@ -319,6 +320,3 @@ pub fn sphincsv_verify(
 
     res
 }
-
-
-
