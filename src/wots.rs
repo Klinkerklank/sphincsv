@@ -10,55 +10,125 @@
 use crate::adrs::Adrs;      // ADRS data structure
 use crate::adrs::adrs_type; // ADRS type constants
 
-use crate::params::{N, V, WOTS_SIG}; // parameter values
+use crate::params::{N, W, V, D0, WOTS_SIG}; // parameter values
 
 use crate::tweakable_hashes::{f, t_v}; // hash function instantiations
 
-use crate::u256::*; // WOTS+ parameter computation stuff
+use crate::u256::{U256, ZERO, u256_from_be, u256_add, u256_sub, u256_lt, shr_to_u256, mul_wide, bit_len}; // WOTS+ parameter computation stuff
+
+/////////////////////// WOTS+ PRECOMPUTATION CODE ///////////////////////
+
+type Table = [[U256; D0 + 1]; V];
+
+/// TABLE[k-1][e] = number of ways to split budget e over k chains, each in 0..W
+/// (i.e. l_e^{<k>}). Only e <= D0 is stored; truncation is exact because
+/// entry e depends only on entries <= e of the previous row.
+const fn build_ell() -> Table {
+    let mut t: Table = [[ZERO; D0 + 1]; V];
+    let mut e = 0;
+    while e < W && e <= D0 { t[0][e] = [1, 0, 0, 0]; e += 1; }        // k = 1
+    let mut k = 2;
+    while k <= V {
+        t[k - 1][0] = t[k - 2][0];
+        let mut e = 1;
+        while e <= D0 {
+            let mut s = u256_add(t[k - 1][e - 1], t[k - 2][e]);
+            if e >= W { s = u256_sub(s, t[k - 2][e - W]); }            // sliding window
+            t[k - 1][e] = s;
+            e += 1;
+        }
+        k += 1;
+    }
+    t
+}
+
+const TABLE: Table = build_ell();       // evaluated once at compile time
+static ELL: Table = TABLE;              // single copy in the binary: index this at runtime
+const ELL_TOP: U256 = TABLE[V - 1][D0]; // l_{d0}^{<v>}: size of the layer we map into
+
+/// Hash output bytes needed: log2(l_d0) + 64 bits of slack, so the rescaling bias is ~2^-64.
+const DIGEST_LEN: usize = (bit_len(ELL_TOP) + 64 + 7) / 8;
+const _: () = assert!(DIGEST_LEN <= 32, "widen U256 if this fires");
 
 /////////////////////// HELPER FUNCTIONS ///////////////////////
  
-fn map_to_vertex(
-    _x: usize, // input message
-) -> [usize; V] {
+// fn map_to_vertex(
+//     _x: usize, // input message
+// ) -> [usize; V] {
 
-    // 1. set x_i = x and d_1 = PARAMS.d0
+//     // 1. set x_i = x and d_1 = PARAMS.d0
 
-    // 2. for i from 1 to v-1:
+//     // 2. for i from 1 to v-1:
 
-    // 2a. find j_i in {0, ..., w-1} s.t. sum_{0<=j<j_i} l_{d_i-j}^{<v-i>} <= x_i < sum_{0<=j<=j_i} l_{d_i-j}^{<v-i>}
+//     // 2a. find j_i in {0, ..., w-1} s.t. sum_{0<=j<j_i} l_{d_i-j}^{<v-i>} <= x_i < sum_{0<=j<=j_i} l_{d_i-j}^{<v-i>}
 
-    // 2b. set a_i = w - j_i in [w]
+//     // 2b. set a_i = w - j_i in [w]
 
-    // 2c. set d_{i+1} = d_i - j_i = d_i - (w - a_i)
+//     // 2c. set d_{i+1} = d_i - j_i = d_i - (w - a_i)
 
-    // 2d. set x_{i+1} = x_i - sum_{0<=j<j} l_{d_i-j}^{<v-i>}
+//     // 2d. set x_{i+1} = x_i - sum_{0<=j<j} l_{d_i-j}^{<v-i>}
 
-    // 3. set a_v = w - x_v - d_v
+//     // 3. set a_v = w - x_v - d_v
 
-    // 4. output (a_1, a_2, ..., a_v)
+//     // 4. output (a_1, a_2, ..., a_v)
 
-    let a: [usize; V] = [0; V];
+//     let a: [usize; V] = [0; V];
 
-    a
+//     a
     
+// }
+
+/// Unrank x in [0, l_d^{<v>}) to verifier-step counts j_i (sum == d, each < w), v = j.len().
+fn unrank(mut x: U256, mut d: usize, w: usize, ell: impl Fn(usize, usize) -> U256, j: &mut [usize]) {
+    let v = j.len();
+    for i in 0..v - 1 {
+        let k = v - 1 - i;                      // chains left after this one (paper's v-i)
+        let mut ji = 0;
+        loop {
+            assert!(ji < w, "x out of range for this layer");
+            let block = if ji <= d { ell(k, d - ji) } else { ZERO };
+            if u256_lt(&x, &block) { break; }   // x falls inside this block
+            x = u256_sub(x, block);             // otherwise skip it
+            ji += 1;
+        }
+        j[i] = ji;
+        d -= ji;
+    }
+    debug_assert!(x == ZERO && d < w);          // 1-chain tail: exactly one vertex
+    j[v - 1] = d;                               // last chain takes the remaining budget
 }
- 
+
+// MapToVertex for the production parameters. Returns j_i = w - a_i (verifier steps).
+fn map_to_vertex(x: U256) -> [usize; V] {
+    debug_assert!(u256_lt(&x, &ELL_TOP));
+    let mut j = [0usize; V];
+    unrank(x, D0, W, |k, e| ELL[k - 1][e], &mut j);
+    j
+}
+
+// map a digest to signature indices, i.e. one chain index per chain,
+// indicating per chain how many times the signer must iteratively hash
 fn top_single_layer(
-    _msg: [u8; N], // input message
+    digest: &[u8; N], // message digest
 ) -> [usize; V] {
 
-    // translate msg to x, which is in {0, 1, ..., w^v-1}
+    // z is the digest as a big-endian integer
+    let z: U256 = u256_from_be(digest);
 
-    // rescale msg (almost) uniformly onto [0..l_{PARAMS.d0}]
-    // x = floor(msg*l_{PARAMS.d0} / w^v)
+    // x = floor(z * l_d0 / 2^(8*N))
+    let x: U256 = shr_to_u256(&mul_wide(&z, &ELL_TOP), 8 * N);
 
-    // output a = map_to_vertex(x)
+    // j indicates for each chain how many times *the verifier* has to hash the chain to get to the end value 
+    let j = map_to_vertex(x);
 
-    let a: [usize; V] = [0; V];
+    // transform j into the signature indices of how many times *the signer* has to hash the chains
+    // a_i = w - j_i in [1, w], so the signer hashes a_i - 1 = w-1-j_i times
+    let mut lengths = [0usize; V];
+    for i in 0..V { lengths[i] = W - 1 - j[i]; }
 
-    a
+    debug_assert_eq!(lengths.iter().sum::<usize>(), V * (W - 1) - D0);
 
+    lengths
 }
 
 //////////////////////// MAIN FUNCTIONS ////////////////////////
