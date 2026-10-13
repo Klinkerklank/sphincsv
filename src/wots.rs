@@ -297,16 +297,53 @@ pub fn wots_sign(
 | signature.                                                   |
 +-------------------------------------------------------------*/
 pub fn wots_pkfromsig(
-    _sig_wots: &[u8; WOTS_SIG], // WOTS+ signature
-    _m: &[u8; N],               // message (XMSS root or FORS public key)
-    _pk_seed: &[u8; N],         // PK.seed
-    mut _adrs: Adrs,            // ADRS
+    sig_wots: &[u8; WOTS_SIG], // WOTS+ signature
+    m: &[u8; N],               // message (XMSS root or FORS public key)
+    pk_seed: &[u8; N],         // PK.seed
+    mut adrs: Adrs,            // ADRS
 ) -> [u8; N] // -> pk_wots
 {
 
+    // compute the chain lengths based on the message
+    let lengths: [usize; V] = top_single_layer(&m);
 
+    // copy the WOTS+ signature into chains (as sig_wots is not writable)
+    let mut chains: [[u8; N]; V] = [[0u8; N]; V];
+    for i in 0..V {
+        chains[i].copy_from_slice(&sig_wots[i*N..(i+1)*N]);
+    }
 
-    let pk_wots: [u8; N] = [0u8; N];
+    // compute all public key values
+    for idx_chain in 0..V {
+
+        // update the chain address in ADRS
+        adrs.set_chain_addr(idx_chain as u32);
+
+        let start: u32 = lengths[idx_chain] as u32; // start index is that of the signature value
+        // to hash the chain to completion, we need to get to index SPX_W-1, and we are already at index 'start'
+        let steps: u32 = (W as u32)-1 - start;
+
+        // take the signature value from the WOTS+ signature
+        let mut sigval: [u8; N] = [0u8; N];
+        sigval.copy_from_slice(&chains[idx_chain]);
+
+        // compute the WOTS+ public key value from the signature value
+        let pk_wots: [u8; N] = chain(&sigval, start, steps, &pk_seed, adrs);
+
+        // store the computed public key value in chains
+        chains[idx_chain].copy_from_slice(&pk_wots);
+
+    }
+
+    // clone ADRS and set the correct type for WOTS+ public key generation
+    let mut wotspkadrs: Adrs = Adrs::clone(&adrs);
+    wotspkadrs.set_type_and_clear(adrs_type::WOTS_PK);
+
+    // get the key pair address from ADRS, and set it in wotspkADRS
+    wotspkadrs.set_key_pair_addr(adrs.get_key_pair_addr());
+    
+    // compute the WOTS+ overall public key by hashing all public key chain values together
+    let pk_wots: [u8; N] = t_v(&pk_seed, &adrs, &chains);
 
     pk_wots
 }
