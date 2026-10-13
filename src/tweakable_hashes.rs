@@ -264,11 +264,11 @@ pub fn h2(
     indices
 }
 
-// T_len(PK.seed, ADRS, M_len) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_len))
-pub fn t_len(
+// T_v(PK.seed, ADRS, M_v) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_v))
+pub fn t_v(
     pk_seed: &[u8; PARAMS.spx_n], // PK.seed
     adrs: &Adrs,                  // ADRS
-    chains: &[u8; PARAMS.spx_len()*PARAMS.spx_n], // concatenation of all chain end values in a WOTS instance
+    chains: &[u8; PARAMS.spx_v()*PARAMS.spx_n], // concatenation of all chain end values in a WOTS instance
 ) -> [u8; PARAMS.spx_n] {
 
     // hash input setup

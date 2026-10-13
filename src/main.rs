@@ -7,6 +7,7 @@
 mod params;           // SPHINCS+V parameters
 mod adrs;             // ADRS data structure
 mod tweakable_hashes; // hash function instantiations
+mod u256;             // WOTS+ parameter computation stuff
 
 // algorithmic modules
 mod porsfp;   // PORS+FP implementation

@@ -4,6 +4,8 @@
  * author: Dennis op 't Roodt 2026-10-05 (d.n.e.o.t.roodt@tue.nl)
  */
 
+use crate::u256::d0_for; // WOTS+ parameter computation stuff
+
 pub const PARAMS: SphincsvParams = SphincsvParams {
 
     // security parameter
@@ -11,6 +13,7 @@ pub const PARAMS: SphincsvParams = SphincsvParams {
 
     // WOTS+
     spx_lg_w: 4,
+    spx_lambda: 128,
 
     // HT and XMSS
     spx_h: 66,
@@ -18,7 +21,7 @@ pub const PARAMS: SphincsvParams = SphincsvParams {
 
     // PORS+FP
     // spx_mmax should be 156 according to the paper,
-    // but the size of A is about 80-90 and su it never gets low enough
+    // but the size of A is about 180-190 and so it never gets low enough
     spx_mmax: 178,
     spx_t:    33 * (1 << 6), // 33*(2^6)
     spx_k:    33,
@@ -36,7 +39,8 @@ pub struct SphincsvParams {
     pub spx_n: usize,
 
     // WOTS+
-    pub spx_lg_w: usize, // WOTS+ chain length
+    pub spx_lg_w: usize,   // WOTS+ chain length
+    pub spx_lambda: usize, // security parameter
 
     // HT and XMSS
     pub spx_h: usize, // total hypertree height
@@ -56,7 +60,13 @@ pub const fn floor_log2(x: usize) -> usize {
 
 // helper function
 pub const fn ceil_log2(x: usize) -> usize {
-    usize::BITS as usize - x.leading_zeros() as usize
+    if x <= 1 { 0 } else { usize::BITS as usize - (x-1).leading_zeros() as usize }
+}
+
+// helper function
+pub const fn ceil_log4(x: usize) -> usize {
+    // ceil(log4 x) = ceil(ceil(log2 x) / 2)
+    (ceil_log2(x) + 1) / 2
 }
 
 // helper function
@@ -98,18 +108,26 @@ impl SphincsvParams {
         1 << self.spx_lg_w // 2^SPX_LG_W
     }
 
-    pub const fn spx_len_1(&self) -> usize {
-        (8 * self.spx_n + self.spx_lg_w - 1) / self.spx_lg_w // ceil(8*SPX_N / SPX_LG_W)
+    pub const fn spx_v(&self) -> usize {
+        let mut v = 1;
+        loop {
+            // w^v > 2^(lambda + log4 lambda)  <=>  2*v*lg_w > 2*lambda + log2(lambda)
+            let feasible = 2 * v * self.spx_lg_w > 2 * self.spx_lambda + ceil_log2(self.spx_lambda);
+            if feasible {
+                if let Some(_) = d0_for(self.spx_lg_w, v, self.spx_lambda) {
+                    return v;
+                }
+            }
+            v += 1;
+        }
     }
 
-    pub const fn spx_len_2(&self) -> usize {
-        // floor(log2(SPX_LEN_1 * (SPX_W - 1)) / SPX_LG_W) + 1
-        let x = self.spx_len_1() * (self.spx_w() - 1);
-        floor_log2(x) / self.spx_lg_w + 1
-    }
-
-    pub const fn spx_len(&self) -> usize {
-        self.spx_len_1() + self.spx_len_2() // SPX_LEN_1 + SPX_LEN_2
+    pub const fn spx_d0(&self) -> usize {
+        // find the minimum hypercube layer d0 such that l_d0 >= 2^lambda
+        match d0_for(self.spx_lg_w, self.spx_v(), self.spx_lambda) {
+            Some(d) => d,
+            None => panic!("no layer with >= 2^lambda vertices"),
+        }
     }
 
     // HT and XMSS parametes
@@ -137,7 +155,7 @@ impl SphincsvParams {
     // signature component byte lengths
 
     pub const fn wots_sig(&self) -> usize {
-        self.spx_len() * self.spx_n // SPX_LEN * SPX_N
+        self.spx_v() * self.spx_n // SPX_V * SPX_N
     }
 
     pub const fn xmss_sig(&self) -> usize {
