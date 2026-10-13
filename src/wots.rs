@@ -12,7 +12,7 @@ use crate::adrs::adrs_type; // ADRS type constants
 
 use crate::params::{N, W, V, D0, WOTS_SIG}; // parameter values
 
-use crate::tweakable_hashes::{f, t_v}; // hash function instantiations
+use crate::tweakable_hashes::{prf, f, t_v}; // hash function instantiations
 
 use crate::u256::{U256, ZERO, u256_from_be, u256_add, u256_sub, u256_lt, shr_to_u256, mul_wide, bit_len}; // WOTS+ parameter computation stuff
 
@@ -123,12 +123,12 @@ fn top_single_layer(
 
     // transform j into the signature indices of how many times *the signer* has to hash the chains
     // a_i = w - j_i in [1, w], so the signer hashes a_i - 1 = w-1-j_i times
-    let mut lengths = [0usize; V];
-    for i in 0..V { lengths[i] = W - 1 - j[i]; }
+    let mut a = [0usize; V];
+    for i in 0..V { a[i] = W - 1 - j[i]; }
 
-    debug_assert_eq!(lengths.iter().sum::<usize>(), V * (W - 1) - D0);
+    debug_assert_eq!(a.iter().sum::<usize>(), V * (W - 1) - D0);
 
-    lengths
+    a
 }
 
 //////////////////////// MAIN FUNCTIONS ////////////////////////
@@ -138,19 +138,36 @@ fn top_single_layer(
 | Chaining function used in WOTS+.                             |
 +-------------------------------------------------------------*/
 fn chain(
-    mut _out: [u8; N],  // out: hash of previous chain value (also input: chain is in-place)
-    _i: u32,                       // position in the chain
-    _steps: u32,                   // number of hash evaluations to do
-    _pk_seed: &[u8; N], // PK.seed
-    mut _adrs: Adrs,               // ADRS
-) -> [u8; N] // -> out
+    input: &[u8; N], // value to hash iteratively
+    mut i: u32,         // position in the chain
+    steps: u32,         // number of hash evaluations to do
+    pk_seed: &[u8; N],  // PK.seed
+    mut adrs: Adrs,     // ADRS
+) -> [u8; N] // -> buffer
 {
 
+    // target = i + steps
+    let t: u32 = i + steps;
 
+    // initialise the output to the input
+    let mut output: [u8; N] = [0u8; N];
+    output.copy_from_slice(input);
 
-    _out = [0u8; N];
+    // iterate over the hash evaluations
+    while i < t {
 
-    _out
+        // update the hash iteration in ADRS
+        adrs.set_hash_addr(i);
+
+        // compute the hash of the previous chain value, and overwrite it
+        let digest: [u8; N] = f(pk_seed, &adrs, &output);
+        output.copy_from_slice(&digest);
+
+        i += 1;
+
+    }
+
+    output
 }
 
 /*-------------------------------------------------------------+
@@ -158,15 +175,55 @@ fn chain(
 | Generates a WOTS+ public key.                                |
 +-------------------------------------------------------------*/
 pub fn wots_pkgen(
-    _sk_seed: &[u8; N], // SK.seed
-    _pk_seed: &[u8; N], // PK.seed
-    mut _adrs: Adrs,               // ADRS
+    sk_seed: &[u8; N], // SK.seed
+    pk_seed: &[u8; N], // PK.seed
+    mut adrs: Adrs,    // ADRS
 ) -> [u8; N] // -> pk
 {
 
+    // initialise the array that will hold all concatenated chain values
+    let mut chains: [[u8; N]; V] = [[0u8; N]; V];
 
+    // clone ADRS and set the correct type for computing WOTS+ secret keys
+    let mut skadrs: Adrs = Adrs::clone(&adrs);
+    skadrs.set_type_and_clear(adrs_type::WOTS_PRF);
+    
+    // get the key pair address from ADRS, and set it in adrs_key
+    skadrs.set_key_pair_addr(adrs.get_key_pair_addr());
 
-    let pk: [u8; N] = [0u8; N];
+    // compute all secret key values
+    for idx_chain in 0..V {
+        
+        // update the chain address in ADRS
+        skadrs.set_chain_addr(idx_chain as u32);
+        
+        // compute the WOTS+ secret key value
+        chains[idx_chain].copy_from_slice(&prf(&pk_seed, &sk_seed, &skadrs));
+
+    }
+    
+    // compute all public key values
+    for idx_chain in 0..V {
+        
+        // update the chain address in ADRS
+        adrs.set_chain_addr(idx_chain as u32);
+
+        let start: u32 = 0;            // start index is the first chain value (the secret key value)
+        let steps: u32 = (W as u32)-1; // evaluate the entire hash chain to the last chain value (the public key value)
+
+        // compute the WOTS+ public key value
+        let sig_val: [u8; N] = chain(&chains[idx_chain], start, steps, &pk_seed, adrs);
+        chains[idx_chain].copy_from_slice(&sig_val);
+
+    }
+
+    // set the correct type for computing the WOTS+ public key
+    let mut wotspkadrs: Adrs = Adrs::clone(&adrs);
+    wotspkadrs.set_type_and_clear(adrs_type::WOTS_PK);
+    wotspkadrs.set_key_pair_addr(adrs.get_key_pair_addr());
+    
+    // compute the WOTS+ overall public key by hashing all public key chain values together
+    let pk: [u8; N] = t_v(&pk_seed, &adrs, &chains);
 
     pk
 }
@@ -179,7 +236,7 @@ pub fn wots_sign(
     _m: &[u8; N],       // message to sign (XMSS tree root or PORS+FP public key)
     _sk_seed: &[u8; N], // SK.seed
     _pk_seed: &[u8; N], // PK.seed
-    mut _adrs: Adrs,               // ADRS
+    mut _adrs: Adrs,    // ADRS
 ) -> [u8; WOTS_SIG] // -> sig_wots
 {
 
@@ -197,9 +254,9 @@ pub fn wots_sign(
 +-------------------------------------------------------------*/
 pub fn wots_pkfromsig(
     _sig_wots: &[u8; WOTS_SIG], // WOTS+ signature
-    _m: &[u8; N],             // message (XMSS root or FORS public key)
-    _pk_seed: &[u8; N],       // PK.seed
-    mut _adrs: Adrs,                     // ADRS
+    _m: &[u8; N],               // message (XMSS root or FORS public key)
+    _pk_seed: &[u8; N],         // PK.seed
+    mut _adrs: Adrs,            // ADRS
 ) -> [u8; N] // -> pk_wots
 {
 

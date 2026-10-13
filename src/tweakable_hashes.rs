@@ -40,8 +40,8 @@ pub fn h_msg(
     r: &[u8; N],       // message randomiser
     pk_seed: &[u8; N], // PK.seed
     pk_root: &[u8; N], // PK.root
-    context: &[u8],               // context string
-    message: &[u8],               // message to be signed
+    context: &[u8],    // context string
+    message: &[u8],    // message to be signed
 ) -> [u8; M] {
 
     // initialise the SHA-2 state
@@ -96,9 +96,9 @@ pub fn h_msg(
 // PRF_msg(SK.prf, optrand, M) = Trunc_n(HMAC-SHA-256(SK.prf, optrand || M))
 pub fn prf_msg(
     sk_prf: &[u8; N],  // SK.prf
-    optrand: &[u8; N], // (optional) additional randomness
-    context: &[u8],               // context string
-    message: &[u8],               // message to be signed
+    optrand: &[u8; N], // additional randomness
+    context: &[u8],    // context string
+    message: &[u8],    // message to be signed
 ) -> [u8; N] {
     type HmacSha256 = Hmac<Sha256>;
 
@@ -124,7 +124,7 @@ pub fn prf_msg(
 pub fn prf(
     pk_seed: &[u8; N], // PK.seed
     sk_seed: &[u8; N], // SK.seed
-    adrs: &Adrs,                  // ADRS
+    adrs: &Adrs,       // ADRS
 ) -> [u8; N] {
 
     // hash input setup
@@ -151,7 +151,7 @@ pub fn prf(
 // F(PK.seed, ADRS, M_1) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_1))
 pub fn f(
     pk_seed: &[u8; N], // PK.seed
-    adrs: &Adrs,                  // ADRS
+    adrs: &Adrs,       // ADRS
     m: &[u8; N],       // input message
 ) -> [u8; N] {
 
@@ -179,7 +179,7 @@ pub fn f(
 // H(PK.seed, ADRS, M_2) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_2))
 pub fn h(
     pk_seed: &[u8; N], // PK.seed
-    adrs: &Adrs,                  // ADRS
+    adrs: &Adrs,       // ADRS
     m1: &[u8; N],      // 1st input message
     m2: &[u8; N],      // 2nd input message
 ) -> [u8; N] {
@@ -209,10 +209,10 @@ pub fn h(
 // H_2(PK.seed, ADRS, md, ctr) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || md || ctr))
 pub fn h2(
     pk_seed: &[u8; N], // PK.seed
-    adrs: &Adrs,                  // ADRS
+    adrs: &Adrs,       // ADRS
     md: &[u8; N],      // message digest
-    ctr: u32,                     // counter
-) -> Vec<u32> { // -> set of k indices = 0..(t choose k)
+    ctr: u32,          // counter
+) -> Vec<u32> { // -> set of k indices in 0..(t choose k)
 
     // hash input setup
     let adrsc: [u8; 22] = adrs.compress(); // compress ADRS to ADRS^c
@@ -262,9 +262,9 @@ pub fn h2(
 
 // T_v(PK.seed, ADRS, M_v) = Trunc_n(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_v))
 pub fn t_v(
-    pk_seed: &[u8; N], // PK.seed
-    adrs: &Adrs,                  // ADRS
-    chains: &[u8; V*N], // concatenation of all chain end values in a WOTS instance
+    pk_seed: &[u8; N],     // PK.seed
+    adrs: &Adrs,           // ADRS
+    chains: &[[u8; N]; V], // concatenation of all chain end values in a WOTS+ instance
 ) -> [u8; N] {
 
     // hash input setup
@@ -274,8 +274,8 @@ pub fn t_v(
     let mut hash: Sha256 = initialise_hash(pk_seed);
     
     // absorb all remaining inputs
-    Sha256Digest::update(&mut hash, adrsc);  // absorb ADRS^c
-    Sha256Digest::update(&mut hash, chains); // absorb all chain values
+    Sha256Digest::update(&mut hash, adrsc);                 // absorb ADRS^c
+    Sha256Digest::update(&mut hash, chains.as_flattened()); // absorb all chain values
 
     // finalise the digest computation
     let digest = hash.finalize();
