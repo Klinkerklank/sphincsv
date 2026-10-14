@@ -45,7 +45,7 @@ pub const WOTS_SIG: usize = V*N;
 pub const XMSS_SIG: usize = WOTS_SIG + H_PRIME*N;
 pub const HT_SIG: usize = D*XMSS_SIG;
 pub const PORS_SIG: usize = 4 + K*N + MMAX*N;
-pub const SPXV_SIG: usize = N + PORS_SIG + PORS_SIG;
+pub const SPXV_SIG: usize = N + PORS_SIG + HT_SIG;
 
 /* helper functions */
 

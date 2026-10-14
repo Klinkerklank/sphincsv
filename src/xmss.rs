@@ -7,7 +7,7 @@
 use crate::adrs::Adrs;      // ADRS data structure
 use crate::adrs::adrs_type; // ADRS type constants
 
-use crate::params::{N, H_PRIME, H_BAR, XMSS_TREE_SIZE, WOTS_SIG, XMSS_SIG}; // parameter values
+use crate::params::{N, H_PRIME, XMSS_TREE_SIZE, WOTS_SIG, XMSS_SIG}; // parameter values
 
 use crate::tweakable_hashes::{h}; // hash function instantiations
 
@@ -31,7 +31,7 @@ fn flat_tree_idx(
     (i, z): (u32, u32), // node
 ) -> usize {
     // flat_tree_idx = 2^(h'+1) - 2^(h'+1-z) + i
-    ((1 << (H_BAR + 1)) - (1 << (H_BAR + 1 - (z as usize))) + i) as usize
+    ((1 << (H_PRIME + 1)) - (1 << (H_PRIME + 1 - (z as usize))) + i) as usize
 }
 
 //////////////////////// MAIN FUNCTIONS ////////////////////////
@@ -233,7 +233,8 @@ pub fn xmss_pkfromsig(
 
     }
 
-    let pk_xmss: [u8; N] = [0u8; N];
+    let mut pk_xmss: [u8; N] = [0u8; N];
+    pk_xmss.copy_from_slice(&node0);
 
     pk_xmss
 }

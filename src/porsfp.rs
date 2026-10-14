@@ -301,7 +301,7 @@ pub fn porsfp_sign(
     }
 
     // TODO remove print, which is only there for debugging purposes
-    println!("H_2 counter found! ctr={}", ctr);
+    // println!("H_2 counter found! ctr={}", ctr);
 
     // sig_porsfp = (ctr, {F_SK(i)}_i∈I, {y_i}_i∈A), initialised to all-zero
     let mut sig_porsfp: [u8; PORS_SIG] = [0u8; PORS_SIG];
