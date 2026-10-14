@@ -188,13 +188,13 @@ fn sphincsv_sign_internal(
     adrs.set_key_pair_addr(idx_leaf); // leaf index of the XMSS tree that will sign the PORS+FP public key
 
     // compute the PORS+FP signature
-    let sig_porsfp: [u8; PORS_SIG] = porsfp_sign(&md, &sk_seed, &pk_seed, &mut adrs);
+    let sig_porsfp: [u8; PORS_SIG] = porsfp_sign(&md, &sk_seed, &pk_seed, adrs);
 
     // write the PORS+FP signature to the SPHINCS+V signature
     sig_sphincsv[N..N+PORS_SIG].copy_from_slice(&sig_porsfp);
 
     // compute the PORS+FP public key based on the PORS+FP signature
-    let pk_porsfp: [u8; N] = porsfp_pkfromsig(&sig_porsfp, &md, &pk_seed, &mut adrs);
+    let pk_porsfp: [u8; N] = porsfp_pkfromsig(&sig_porsfp, &md, &pk_seed, adrs);
 
     // compute the hypertree signature on the PORS+FP public key
     let sig_ht: [u8; HT_SIG] = ht_sign(&pk_porsfp, &sk_seed, &pk_seed, idx_tree, idx_leaf);
@@ -290,7 +290,7 @@ fn sphincsv_verify_internal(
     sig_porsfp.copy_from_slice(&sig_sphincsv[N .. N + PORS_SIG]);
     
     // compute the PORS+FP public key based on the PORS+FP signature
-    let pk_porsfp: [u8; N] = porsfp_pkfromsig(&sig_porsfp, &md, &pk_seed, &mut adrs);
+    let pk_porsfp: [u8; N] = porsfp_pkfromsig(&sig_porsfp, &md, &pk_seed, adrs);
     
     // extract the HT signature from the overall signature
     let mut sig_ht: [u8; HT_SIG] = [0u8; HT_SIG];

@@ -166,7 +166,7 @@ fn porsfp_skgen(
 | ALGORITHM 2 FROM [AK25].                                     |
 | Generates a PORS+FP private-key value.                       |
 +-------------------------------------------------------------*/
-pub fn porsfp_node( // TODO remove 'pub', which is only there for debugging purposes
+pub fn porsfp_node(
     sk_seed: &[u8; N], // SK.seed
     i_target: u32,     // node's horizontal index
     z_target: u32,     // node's height
@@ -271,7 +271,7 @@ pub fn porsfp_sign(
     md: &[u8; N],      // message digest
     sk_seed: &[u8; N], // SK.seed
     pk_seed: &[u8; N], // PK.seed
-    adrs: &mut Adrs,   // ADRS
+    mut adrs: Adrs,    // ADRS
 ) -> [u8; PORS_SIG] { // PORS+FP signature
 
     let mut ctr: u32 = 0; // incrementing counter for leaf-set computing
@@ -283,7 +283,7 @@ pub fn porsfp_sign(
     loop {
 
         // indices = (H_2(md || ctr))
-        let indices: Vec<u32> = h2(pk_seed, adrs, md, ctr);
+        let indices: Vec<u32> = h2(pk_seed, &adrs, md, ctr);
 
         // convert indices to the two lists I and P
         (leaf_nodes, prnt_nodes) = init_octopus(indices);
@@ -301,7 +301,7 @@ pub fn porsfp_sign(
     }
 
     // TODO remove print, which is only there for debugging purposes
-    println!("counter found! ctr={}", ctr);
+    println!("H_2 counter found! ctr={}", ctr);
 
     // sig_porsfp = (ctr, {F_SK(i)}_i∈I, {y_i}_i∈A), initialised to all-zero
     let mut sig_porsfp: [u8; PORS_SIG] = [0u8; PORS_SIG];
@@ -320,10 +320,10 @@ pub fn porsfp_sign(
     for (i, z) in (leaf_nodes.iter()).chain(prnt_nodes.iter()) {
 
         // compute the secret key
-        let sk: [u8; N] = porsfp_skgen(sk_seed, pk_seed, *adrs, *i, *z);
+        let sk: [u8; N] = porsfp_skgen(sk_seed, pk_seed, adrs, *i, *z);
 
         // compute the hash of the secret key
-        let node: [u8; N] = f(pk_seed, adrs, &sk);
+        let node: [u8; N] = f(pk_seed, &adrs, &sk);
 
         // set the hashed secret key in the signature
         sig_porsfp[idx..idx+N].copy_from_slice(&node);
@@ -337,7 +337,7 @@ pub fn porsfp_sign(
     for (i, z) in auth_nodes {
 
         // compute the PORS+FP authentication node at position (i, z) within the tree
-        let node: [u8; N] = porsfp_node(sk_seed, i, z, pk_seed, *adrs);
+        let node: [u8; N] = porsfp_node(sk_seed, i, z, pk_seed, adrs);
 
         // set the authentication node value in the signature
         sig_porsfp[idx..idx+N].copy_from_slice(&node);
@@ -365,7 +365,7 @@ pub fn porsfp_pkfromsig(
     sig_porsfp: &[u8; PORS_SIG], // PORS+FP signature
     md: &[u8; N],                // message digest
     pk_seed: &[u8; N],           // PK.seed
-    adrs: &mut Adrs,             // ADRS
+    mut adrs: Adrs,              // ADRS
 ) -> [u8; N] { // PORS+FP signature
 
     // extract the counter value from the signature
@@ -377,7 +377,7 @@ pub fn porsfp_pkfromsig(
     let mut auth_nodes: Vec<(u32, u32)> = vec![]; // the list of authentication nodes (A) from Octopus
 
     // indices = (H_2(md || ctr))
-    let indices: Vec<u32> = h2(pk_seed, adrs, md, ctr);
+    let indices: Vec<u32> = h2(pk_seed, &adrs, md, ctr);
 
     // convert indices to the two lists I and P
     (leaf_nodes, prnt_nodes) = init_octopus(indices);

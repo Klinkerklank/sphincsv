@@ -19,93 +19,133 @@ mod sphincsv; // SPHINCS+V implementation
 use crate::adrs::Adrs;      // ADRS data structure
 use crate::adrs::adrs_type; // ADRS type constants
 
+use crate::porsfp::porsfp_node;
+use crate::porsfp::porsfp_pkfromsig;
+use crate::porsfp::porsfp_sign;
+use crate::sphincsv::sphincsv_keygen;
+use crate::sphincsv::sphincsv_sign;
+use crate::sphincsv::sphincsv_verify;
 use crate::tweakable_hashes::{prf_msg, h_msg}; // hash function instantiations
 
-use crate::params::*; // parameter values
-
-fn parse_indices(
-    _tmp_idx_tree: [u8; IDX_TREE_LEN], // raw tree index data
-    _tmp_idx_leaf: [u8; IDX_LEAF_LEN], // raw leaf index data
-) -> ([u32; 3], u32) {
-
-    let idx_tree: [u32; 3] = [0u32; 3];
-    let idx_leaf: u32 = 0;
-
-    (idx_tree, idx_leaf)
-}
+use crate::params::*;
+use crate::wots::wots_pkfromsig;
+use crate::wots::wots_pkgen;
+use crate::wots::wots_sign;
+use crate::xmss::xmss_node;
+use crate::xmss::xmss_pkfromsig;
+use crate::xmss::xmss_sign; // parameter values
 
 fn main() {
 
+    let sk_seed: [u8; N] = [0x7F; N]; // set an sk_seed
+    let pk_seed: [u8; N] = [0xA1; N]; // set a  pk_seed
+
+    /* PORS+FP manual testing code */
+
     println!();
 
-    let sk_seed: [u8; N] = [0u8; N];
-    let sk_prf:  [u8; N] = [0u8; N];
-    let pk_seed: [u8; N] = [0u8; N];
-    let pk_root: [u8; N] = [0u8; N];
-    let optrand: [u8; N] = [0u8; N];
+    // compute a PORS+FP public key from secret values
+    let adrs: Adrs = Adrs::new(); // initialise ADRS
+    let pk_pors: [u8; N] = porsfp_node(&sk_seed, 0 as u32, H_BAR as u32, &pk_seed, adrs); // compute the PORS+FP public key
+    println!("PORS+FP node:        {:02x?}", pk_pors);
 
-    // initialise ADRS
-    let mut adrs: Adrs = Adrs::new();
+    // compute a PORS+FP signature
+    let adrs: Adrs = Adrs::new(); // initialise ADRS
+    let md: [u8; N] = [0xCC; N]; // set an arbitrary message digest
+    let sig_porsfp: [u8; PORS_SIG] = porsfp_sign(&md, &sk_seed, &pk_seed, adrs); // compute a signature
 
-    // compute the root of the PORS+FP instance using porsfp_node
-    let pk_node: [u8; N] = porsfp::porsfp_node(&sk_seed, 0 as u32, H_BAR as u32, &pk_seed, adrs);
+    // compute a PORS+FP public key from a signature
+    let adrs: Adrs = Adrs::new(); // initialise ADRS
+    let pk_pors: [u8; N] = porsfp_pkfromsig(&sig_porsfp, &md, &pk_seed, adrs); // compute the PORS+FP public key
+    println!("PORS+FP pkfromsig 1: {:02x?}", pk_pors);
 
-    println!("root according to porsfp_node:");
-    println!("{:02x?}\n", pk_node);
+    // compute a PORS+FP public key from a different message digest
+    let adrs: Adrs = Adrs::new(); // initialise ADRS
+    let md: [u8; N] = [0x65; N]; // set an arbitrary message digest
+    let sig_porsfp: [u8; PORS_SIG] = porsfp_sign(&md, &sk_seed, &pk_seed, adrs); // compute a signature
+    let adrs: Adrs = Adrs::new(); // initialise ADRS
+    let pk_pors: [u8; N] = porsfp_pkfromsig(&sig_porsfp, &md, &pk_seed, adrs); // compute the PORS+FP public key
+    println!("PORS+FP pkfromsig 2: {:02x?}", pk_pors);
 
-    // construct an abitrary message and context
-    let message: [u8; N] = [0xFF; N];
-    let context: [u8; N] = [0xAA; N];
 
-    // println!("message:");
-    // println!("{:02x?}\n", message);
 
-    // println!("context:");
-    // println!("{:02x?}\n", context);
+    /* WOTS+ manual testing code */
 
-    // compute the message randomiser
-    let r: [u8; N] = prf_msg(&sk_prf, &optrand, &context, &message);
+    println!();
 
-    // println!("r:");
-    // println!("{:02x?}\n", r);
+    // compute a WOTS+ public key from secret values
+    let adrs: Adrs = Adrs::new(); // initialise ADRS
+    let pk_wots: [u8; N] = wots_pkgen(&sk_seed, &pk_seed, adrs); // compute the WOTS+ public key
+    println!("WOTS+ pkgen:         {:02x?}", pk_wots);
 
-    // compute the message digest
-    let digest: [u8; M] = h_msg(&r, &pk_seed, &pk_root, &context, &message);
+    // compute a WOTS+ signature
+    let adrs: Adrs = Adrs::new(); // initialise ADRS
+    let m: [u8; N] = [0xCC; N]; // set an arbitrary message
+    let sig_wots: [u8; WOTS_SIG] = wots_sign(&m, &sk_seed, &pk_seed, adrs); // compute a signature
 
-    // println!("digest:");
-    // println!("{:02x?}\n", digest);
+    // compute a WOTS+ public key from a signature
+    let adrs: Adrs = Adrs::new(); // initialise ADRS
+    let pk_wots: [u8; N] = wots_pkfromsig(&sig_wots, &m, &pk_seed, adrs); // compute the WOTS+ public key
+    println!("WOTS+ pkfromsig 1:   {:02x?}", pk_wots);
 
-    // extract md, tmp_idx_tree, and tmp_idx_leaf from digest
-    let mut md:           [u8; MD_LEN]       = [0u8; MD_LEN];
-    let mut tmp_idx_tree: [u8; IDX_TREE_LEN] = [0u8; IDX_TREE_LEN];
-    let mut tmp_idx_leaf: [u8; IDX_LEAF_LEN] = [0u8; IDX_LEAF_LEN];
-    md          .copy_from_slice(&digest[0                                             .. MD_LEN                                                    ]);
-    tmp_idx_tree.copy_from_slice(&digest[MD_LEN                           .. MD_LEN+IDX_TREE_LEN                          ]);
-    tmp_idx_leaf.copy_from_slice(&digest[MD_LEN+IDX_TREE_LEN .. MD_LEN+IDX_TREE_LEN+IDX_LEAF_LEN]);
+    // compute a WOTS+ public key from a different message
+    let adrs: Adrs = Adrs::new(); // initialise ADRS
+    let m: [u8; N] = [0x65; N]; // set an arbitrary message
+    let sig_wots: [u8; WOTS_SIG] = wots_sign(&m, &sk_seed, &pk_seed, adrs); // compute a signature
+    let adrs: Adrs = Adrs::new(); // initialise ADRS
+    let pk_wots: [u8; N] = wots_pkfromsig(&sig_wots, &m, &pk_seed, adrs); // compute the WOTS+ public key
+    println!("WOTS+ pkfromsig 2:   {:02x?}", pk_wots);
 
-    // compute idx_tree and idx_leaf from tmp_idx_tree and tmp_idx_leaf
-    let (idx_tree, idx_leaf) = parse_indices(tmp_idx_tree, tmp_idx_leaf);
 
-    // set the ADRS values for the PORS+FP signature generation
-    adrs.set_tree_addr(idx_tree);
-    adrs.set_type_and_clear(adrs_type::PORS_TREE);
-    adrs.set_key_pair_addr(idx_leaf);
 
-    // compute a signature on the message digest md using porsfp_sign
-    let sig_porsfp: [u8; PORS_SIG] = porsfp::porsfp_sign(&md, &sk_seed, &pk_seed, &mut adrs);
+    // /* XMSS manual testing code */
 
-    println!("signature computed\n");
+    // println!();
 
-    // set the ADRS values for the PORS+FP signature generation
-    adrs.set_tree_addr(idx_tree);
-    adrs.set_type_and_clear(adrs_type::PORS_TREE);
-    adrs.set_key_pair_addr(idx_leaf);
+    // // compute an XMSS public key from secret values
+    // let adrs: Adrs = Adrs::new(); // initialise ADRS
+    // let pk_xmss: [u8; N] = xmss_node(&sk_seed, 0 as u32, H_PRIME as u32, &pk_seed, adrs); // compute the XMSS public key
+    // println!("XMSS node:          {:02x?}", pk_xmss);
 
-    // compute the root of the PORS+FP instance from the signature using porsfp_pkfromsig
-    let pk_sign: [u8; N] = porsfp::porsfp_pkfromsig(&sig_porsfp, &md, &pk_seed, &mut adrs);
+    // // compute an XMSS signature
+    // let adrs: Adrs = Adrs::new(); // initialise ADRS
+    // let m: [u8; N] = [0xCC; N]; // set an arbitrary message
+    // let sig_xmss: [u8; XMSS_SIG] = xmss_sign(&m, &sk_seed, 5 as u32, &pk_seed, adrs); // compute a signature
 
-    println!("root according to porsfp_pkfromsig:");
-    println!("{:02x?}\n", pk_sign);
+    // // compute an XMSS public key from a signature
+    // let adrs: Adrs = Adrs::new(); // initialise ADRS
+    // let pk_xmss: [u8; N] = xmss_pkfromsig(5 as u32, &sig_xmss, &m, &pk_seed, adrs); // compute the XMSS public key
+    // println!("XMSS pkfromsig 1:   {:02x?}", pk_xmss);
+
+    // // compute an XMSS public key from a different signature
+    // let adrs: Adrs = Adrs::new(); // initialise ADRS
+    // let m: [u8; N] = [0x65; N]; // set an arbitrary message
+    // let sig_xmss: [u8; XMSS_SIG] = xmss_sign(&m, &sk_seed, 5 as u32, &pk_seed, adrs); // compute a signature
+    // let adrs: Adrs = Adrs::new(); // initialise ADRS
+    // let pk_xmss: [u8; N] = xmss_pkfromsig(5 as u32, &sig_xmss, &m, &pk_seed, adrs); // compute the XMSS public key
+    // println!("XMSS pkfromsig 2:   {:02x?}", pk_xmss);
+
+
+
+    // /* SPHINCS+V manual testing code */
+
+    // println!();
+
+    // // compute a secret-public key pair
+    // let sk: [u8; SKBYTES];
+    // let pk: [u8; PKBYTES];
+    // (sk, pk) = sphincsv_keygen();
+
+    // // compute a SPHINCS+V signature
+    // let context: &[u8] = "SPHINCS+V test".as_bytes(); // create an abitrary context string
+    // let message: &[u8] = "Does this verify?".as_bytes(); // create an arbitrary message
+    // println!("context: {:02x?}\n", context);
+    // println!("message: {:02x?}\n", message);
+    // let sig_sphincsv:[u8; SPXV_SIG] = sphincsv_sign(&context, &message, &sk, true);
+    
+    // // verify a SPHINCS+V signature
+    // let res: bool = sphincsv_verify(&context, &message, &sig_sphincsv, &pk);
+    // if res { println!("verification succes!\n"); } else { println!("verification failed :(\n"); }
 
 }
 

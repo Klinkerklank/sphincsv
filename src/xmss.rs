@@ -57,27 +57,27 @@ pub fn xmss_node(
     let mut flat_tree: [u8; XMSS_TREE_SIZE * N] = [0u8; XMSS_TREE_SIZE * N];
 
     // iterate over the layers, bottom to top
-    for z in 0..z_target+1 {
+    for z in 0..(z_target as usize)+1 {
 
-        let i_start: u32 =  i_target      * (1 << (z_target-z)); //  i_target      * 2^(z_target-z)
-        let i_end: u32   = (i_target + 1) * (1 << (z_target-z)); // (i_target + 1) * 2^(z_target-z)
+        let i_start: usize =  (i_target as usize)      * (1 << ((z_target as usize)-z)); //  i_target      * 2^(z_target-z)
+        let i_end: usize   = ((i_target as usize) + 1) * (1 << ((z_target as usize)-z)); // (i_target + 1) * 2^(z_target-z)
 
         // iterate over the nodes in a layer, left to right
         for i in i_start..i_end {
 
-            if i == 0 { // layer-0 leaf node: the node value is a WOTS+ public key
+            if z == 0 { // layer-0 leaf node: the node value is a WOTS+ public key
 
                 // set the correct values in ADRS for WOTS hashing
                 adrs.set_type_and_clear(adrs_type::WOTS_HASH);
                 adrs.set_key_pair_addr(i as u32);
                 
                 // compute the WOTS+ public key
-                flat_tree.copy_from_slice(&wots_pkgen(&sk_seed, &pk_seed, adrs));
+                flat_tree[i*N..(i+1)*N].copy_from_slice(&wots_pkgen(&sk_seed, &pk_seed, adrs));
 
             } else { // internal node: the node value is the hash of its two children lnode and rnode
 
                 // get the left child
-                let mut idx: usize = flat_tree_idx(lchild((i, z))) * N;
+                let mut idx: usize = flat_tree_idx(lchild((i as u32, z as u32))) * N;
                 let mut lnode: [u8; N] = [0u8; N];
                 lnode.copy_from_slice(&flat_tree[idx..idx+N]);
 
@@ -88,14 +88,14 @@ pub fn xmss_node(
 
                 // compute the relevant ADRS
                 adrs.set_type_and_clear(adrs_type::TREE); // set the correct type for computing XMSS internal nodes
-                adrs.set_tree_index(i); // set the tree index
-                adrs.set_tree_height(z); // set the tree height
+                adrs.set_tree_index(i as u32); // set the tree index
+                adrs.set_tree_height(z as u32); // set the tree height
 
                 // compute node = H(PK.seed, ADRS, lnode, rnode)
                 let node: [u8; N] = h(pk_seed, &adrs, &lnode, &rnode);
 
                 // compute the byte offset of node (i, z) in the flattened tree
-                let idx: usize = flat_tree_idx((i, z)) * N;
+                let idx: usize = flat_tree_idx((i as u32, z as u32)) * N;
 
                 // set the internal node in the flattened tree
                 flat_tree[idx..idx+N].copy_from_slice(&node);
