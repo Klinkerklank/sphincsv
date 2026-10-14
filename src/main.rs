@@ -28,14 +28,11 @@ fn main() {
     let sk: [u8; SKBYTES];
     let pk: [u8; PKBYTES];
     (sk, pk) = sphincsv_keygen();
-    // print_hex("sk", &sk);
     println!("keygen succes");
 
     // compute a SPHINCS+V signature
     let context: &[u8] = "SPHINCS+V test".as_bytes(); // create an abitrary context string
     let message: &[u8] = "Does this verify?".as_bytes(); // create an arbitrary message
-    // println!("context: {:02x?}", context);
-    // println!("message: {:02x?}", message);
     let sig_sphincsv:[u8; SPXV_SIG] = sphincsv_sign(&context, &message, &sk, true);
     println!("signing succes");
     
@@ -44,4 +41,3 @@ fn main() {
     if res { println!("verification succes!\n"); } else { println!("verification failed :(\n"); }
 
 }
-

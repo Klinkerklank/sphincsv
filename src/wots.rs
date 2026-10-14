@@ -18,21 +18,53 @@ use crate::u256::{U256, ZERO, u256_from_be, u256_add, u256_sub, u256_lt, shr_to_
 
 /////////////////////// WOTS+ PRECOMPUTATION CODE ///////////////////////
 
+// ELL[k-1][e] = l_e^{<k>}: the number of ways to choose (j_1, ..., j_k) with each j_i in 0..W
+// (0 <= j_i <= W-1) and j_1 + ... + j_k == e. In other words, the number of vertices in
+// "layer e" of a k-chain WOTS+ grid, where layer e means the verifier does e hash steps in total.
+//
+// Rows are indexed by k-1 (k = 1..=V chains), columns by e (budget, 0..=D0).
+// Only budgets up to D0 are ever needed (map_to_vertex starts at D0 and only decreases),
+// so the table is truncated at D0.
 type Table = [[U256; D0 + 1]; V];
 
-/// TABLE[k-1][e] = number of ways to split budget e over k chains, each in 0..W
-/// (i.e. l_e^{<k>}). Only e <= D0 is stored; truncation is exact because
-/// entry e depends only on entries <= e of the previous row.
+/// Builds the table of l_e^{<k>} for k = 1..=V and e = 0..=D0.
+///
+/// Definition (what we want):
+///     l_e^{<1>} = 1                                   for 0 <= e < W, else 0
+///     l_e^{<k>} = sum_{j=0}^{W-1} l_{e-j}^{<k-1>}     (the first chain takes j, the rest share e-j)
+///                 with l_x = 0 for x < 0
+///
+/// Computing that sum directly costs W additions per entry. Instead we use a sliding window:
+///     l_e^{<k>}   = l_{e-W+1}^{<k-1>} + ... + l_e^{<k-1>}          (window of W terms)
+///     l_{e-1}^{<k>} = l_{e-W}^{<k-1>} + ... + l_{e-1}^{<k-1>}      (same window, shifted by one)
+/// Subtracting gives:
+///     l_e^{<k>} = l_{e-1}^{<k>} + l_e^{<k-1>} - l_{e-W}^{<k-1>}
+/// which is one add and one subtract per entry. For e < W the subtracted term has a
+/// negative index and is 0, so it is skipped.
+///
+/// Truncation at D0 is exact: entry (k, e) only reads (k, e-1), (k-1, e) and (k-1, e-W),
+/// which all have budget <= e, so no entry <= D0 ever depends on one > D0.
+///
+/// `const fn` with `while` loops (no `for`, no iterators) so it can run at compile time.
 const fn build_ell() -> Table {
     let mut t: Table = [[ZERO; D0 + 1]; V];
+
+    // Row k = 1 (index 0): one chain, so exactly one way for each budget 0..W-1, none above.
     let mut e = 0;
-    while e < W && e <= D0 { t[0][e] = [1, 0, 0, 0]; e += 1; }        // k = 1
+    while e < W && e <= D0 { t[0][e] = [1, 0, 0, 0]; e += 1; }        // U256 value 1
+
+    // Rows k = 2..=V: each row is built from the previous one.
     let mut k = 2;
     while k <= V {
+        // Budget 0: every chain must take j = 0, so there is exactly one way (same as the previous row).
+        // This is also the base case of the sliding-window recurrence (no e-1 term exists).
         t[k - 1][0] = t[k - 2][0];
+
         let mut e = 1;
         while e <= D0 {
+            // l_{e-1}^{<k>} + l_e^{<k-1>}: shift the window by one, adding the new term on its right edge
             let mut s = u256_add(t[k - 1][e - 1], t[k - 2][e]);
+            // Drop the term that just left the window on the left edge (budget e-W, valid once e >= W).
             if e >= W { s = u256_sub(s, t[k - 2][e - W]); }            // sliding window
             t[k - 1][e] = s;
             e += 1;
@@ -42,68 +74,99 @@ const fn build_ell() -> Table {
     t
 }
 
+/// The table, evaluated once at compile time.
+/// Declared `const` only so it can be used in other const expressions (ELL_TOP below).
+/// A `const` is inlined at each use site, so indexing it at runtime could copy the whole table.
 const TABLE: Table = build_ell();       // evaluated once at compile time
+
+/// The table as seen by runtime code. A `static` has a single address and a single copy in the binary,
+/// so `ELL[k-1][e]` in map_to_vertex is a plain memory read.
 static ELL: Table = TABLE;              // single copy in the binary: index this at runtime
+
+/// l_{d0}^{<v>}: the total number of vertices in the top layer, i.e. the size of the set
+/// that map_to_vertex ranks into. Valid x values are 0 <= x < ELL_TOP.
 const ELL_TOP: U256 = TABLE[V - 1][D0]; // l_{d0}^{<v>}: size of the layer we map into
 
-/// Hash output bytes needed: log2(l_d0) + 64 bits of slack, so the rescaling bias is ~2^-64.
+/// Number of digest bytes needed so that mapping a digest uniformly onto [0, ELL_TOP) is almost unbiased.
+///
+/// The digest z is uniform on [0, 2^(8*len)). We compute x = floor(z * ELL_TOP / 2^(8*len)),
+/// which is not exactly uniform on [0, ELL_TOP): some x get one more preimage than others.
+/// The relative bias is about ELL_TOP / 2^(8*len). Taking 8*len >= log2(ELL_TOP) + 64 bits
+/// makes that at most about 2^-64. The "+ 7) / 8" rounds the bit count up to whole bytes.
 const DIGEST_LEN: usize = (bit_len(ELL_TOP) + 64 + 7) / 8;
+
+/// z is held in a U256, so the digest cannot be longer than 32 bytes. If this fires,
+/// the parameter set needs a wider integer type (and wider mul_wide / shr_to_u256).
 const _: () = assert!(DIGEST_LEN <= 32, "widen U256 if this fires");
 
 /////////////////////// HELPER FUNCTIONS ///////////////////////
- 
-// fn map_to_vertex(
-//     _x: usize, // input message
-// ) -> [usize; V] {
 
-//     // 1. set x_i = x and d_1 = PARAMS.d0
-
-//     // 2. for i from 1 to v-1:
-
-//     // 2a. find j_i in {0, ..., w-1} s.t. sum_{0<=j<j_i} l_{d_i-j}^{<v-i>} <= x_i < sum_{0<=j<=j_i} l_{d_i-j}^{<v-i>}
-
-//     // 2b. set a_i = w - j_i in [w]
-
-//     // 2c. set d_{i+1} = d_i - j_i = d_i - (w - a_i)
-
-//     // 2d. set x_{i+1} = x_i - sum_{0<=j<j} l_{d_i-j}^{<v-i>}
-
-//     // 3. set a_v = w - x_v - d_v
-
-//     // 4. output (a_1, a_2, ..., a_v)
-
-//     let a: [usize; V] = [0; V];
-
-//     a
-    
-// }
-
-/// Unrank x in [0, l_d^{<v>}) to verifier-step counts j_i (sum == d, each < w), v = j.len().
-fn unrank(mut x: U256, mut d: usize, w: usize, ell: impl Fn(usize, usize) -> U256, j: &mut [usize]) {
-    let v = j.len();
-    for i in 0..v - 1 {
-        let k = v - 1 - i;                      // chains left after this one (paper's v-i)
-        let mut ji = 0;
-        loop {
-            assert!(ji < w, "x out of range for this layer");
-            let block = if ji <= d { ell(k, d - ji) } else { ZERO };
-            if u256_lt(&x, &block) { break; }   // x falls inside this block
-            x = u256_sub(x, block);             // otherwise skip it
-            ji += 1;
-        }
-        j[i] = ji;
-        d -= ji;
-    }
-    debug_assert!(x == ZERO && d < w);          // 1-chain tail: exactly one vertex
-    j[v - 1] = d;                               // last chain takes the remaining budget
-}
-
-// MapToVertex for the production parameters. Returns j_i = w - a_i (verifier steps).
+/// MapToVertex (paper's algorithm), for the production parameters.
+///
+/// Input:  x in [0, l_{d0}^{<v>}), an index into the top layer
+///         (the set of all vertices (a_1..a_v), each a_i in [1, w], with sum (w - a_i) = d0).
+/// Output: (a_1, ..., a_v), each a_i in [1, w], with sum (w - a_i) == D0.
+///
+/// Notation: ELL[k-1][e] = l_e^{<k>} = number of ways to split a budget e over k chains,
+/// each taking j in 0..w.
+///
+/// Idea: the vertices are ordered chain by chain. For chain i, the choice j_i = 0, 1, 2, ...
+/// owns a contiguous block of indices of size l_{d_i - j_i}^{<v-i>}, i.e. the number of ways
+/// to spread the remaining budget d_i - j_i over the remaining v-i chains.
+/// We find which block x_i falls into; that gives j_i, and the offset within the block
+/// becomes x_{i+1}.
 fn map_to_vertex(x: U256) -> [usize; V] {
     debug_assert!(u256_lt(&x, &ELL_TOP));
-    let mut j = [0usize; V];
-    unrank(x, D0, W, |k, e| ELL[k - 1][e], &mut j);
-    j
+
+    let mut a = [0usize; V]; // a[i-1] holds the paper's a_i (code is 0-indexed, paper is 1-indexed)
+
+    // Step 1: x_1 = x, d_1 = d0.
+    // x_i and d_i are updated in place: at the top of iteration i they hold x_i and d_i.
+    let mut x_i: U256 = x;
+    let mut d_i: usize = D0;
+
+    // Step 2: for i from 1 to v-1
+    for i in 1..V {
+        // Number of chains remaining after chain i (the paper's v-i).
+        let k = V - i;
+
+        // Step 2a: find j_i in {0..w-1} such that
+        //     sum_{0<=j<j_i}  l_{d_i-j}^{<v-i>}  <=  x_i  <  sum_{0<=j<=j_i} l_{d_i-j}^{<v-i>}
+        // We walk j upward. `block` = l_{d_i-j}^{<v-i>} is the size of the block for choice j.
+        // If x_i is not inside it, we skip the block by subtracting its size.
+        // So when the loop exits, x_i has already had sum_{0<=j<j_i} l_{d_i-j}^{<v-i>}
+        // subtracted. That subtraction is step 2d, merged into this loop.
+        let mut j_i: usize = 0;
+        loop {
+            assert!(j_i < W, "x out of range for this layer");
+            // l_e = 0 for e < 0: choosing j > d_i would overspend the budget.
+            let block: U256 = if j_i <= d_i { ELL[k - 1][d_i - j_i] } else { ZERO };
+            if u256_lt(&x_i, &block) {
+                break;                      // x_i < prefix sum up to and including j: found j_i
+            }
+            x_i = u256_sub(x_i, block);     // x_i >= prefix sum: skip this block (part of step 2d)
+            j_i += 1;
+        }
+        // Now: x_i == x_{i+1} = x_i(old) - sum_{0<=j<j_i} l_{d_i-j}^{<v-i>}   (step 2d done)
+
+        // Step 2b: a_i = w - j_i, in [1, w]
+        a[i - 1] = W - j_i;
+
+        // Step 2c: d_{i+1} = d_i - j_i = d_i - (w - a_i)
+        d_i -= j_i;
+    }
+
+    // After the loop, x_i and d_i hold x_v and d_v.
+    // The last chain has only one choice, since l_e^{<1>} = 1 for 0 <= e < w.
+    // So x_v must be 0, and the remaining budget d_v must fit in one chain (d_v < w).
+    assert!(x_i == ZERO);
+    assert!(d_i < W);
+
+    // Step 3: a_v = w - x_v - d_v. Since x_v == 0 this is w - d_v.
+    a[V - 1] = W - d_i;
+
+    // Step 4: output (a_1, ..., a_v)
+    a
 }
 
 // map a digest to signature indices, i.e. one chain index per chain,
@@ -118,15 +181,15 @@ fn top_single_layer(
     // x = floor(z * l_d0 / 2^(8*N))
     let x: U256 = shr_to_u256(&mul_wide(&z, &ELL_TOP), 8 * N);
 
-    // j indicates for each chain how many times *the verifier* has to hash the chain to get to the end value 
-    let j = map_to_vertex(x);
+    // a_i in [1, w]: the paper's vertex. The verifier hashes j_i = w - a_i times
+    // to reach the chain end, so sum (w - a_i) == d0.
+    let a_vertex = map_to_vertex(x);
 
-    // transform j into the signature indices of how many times *the signer* has to hash the chains
-    // a_i = w - j_i in [1, w], so the signer hashes a_i - 1 = w-1-j_i times
+    // Signer hashes a_i - 1 = w - 1 - j_i times (a_i - 1 in [0, w-1], the usual chain index).
     let mut a = [0usize; V];
-    for i in 0..V { a[i] = W - 1 - j[i]; }
+    for i in 0..V { a[i] = a_vertex[i] - 1; }
 
-    debug_assert_eq!(a.iter().sum::<usize>(), V * (W - 1) - D0);
+    assert_eq!(a.iter().sum::<usize>(), V * (W - 1) - D0);
 
     a
 }
