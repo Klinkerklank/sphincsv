@@ -7,7 +7,6 @@
  */
 
 use crate::adrs::Adrs;      // ADRS data structure
-use crate::adrs::adrs_type; // ADRS type constants
 
 use crate::params::{N, H_PRIME, D, IDX_TREE_LEN, XMSS_SIG, HT_SIG}; // parameter values
 

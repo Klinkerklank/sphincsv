@@ -166,7 +166,7 @@ fn porsfp_skgen(
 | ALGORITHM 2 FROM [AK25].                                     |
 | Generates a PORS+FP private-key value.                       |
 +-------------------------------------------------------------*/
-pub fn porsfp_node(
+fn porsfp_node(
     sk_seed: &[u8; N], // SK.seed
     i_target: u32,     // node's horizontal index
     z_target: u32,     // node's height
