@@ -5,7 +5,8 @@
  */
 
 pub type U256 = [u64; 4]; // little-endian limbs
-pub const ZERO: U256 = [0; 4];
+pub const U256_ZERO: U256 = [0; 4];
+pub const U256_ONE: U256 = [1, 0, 0, 0];
 
 pub const fn u256_add(a: U256, b: U256) -> U256 {
     let mut r = [0u64; 4];
@@ -93,7 +94,7 @@ pub const fn u256_lt(a: &U256, b: &U256) -> bool {
 /// big-endian bytes (<= 32) -> U256
 pub fn u256_from_be(bytes: &[u8]) -> U256 {
     assert!(bytes.len() <= 32);
-    let mut r = ZERO;
+    let mut r = U256_ZERO;
     for (i, &b) in bytes.iter().rev().enumerate() {
         r[i / 8] |= (b as u64) << (8 * (i % 8));
     }
@@ -118,7 +119,7 @@ pub fn mul_wide(a: &U256, b: &U256) -> [u64; 8] {
 /// (r >> bits) truncated to 256 bits
 pub fn shr_to_u256(r: &[u64; 8], bits: usize) -> U256 {
     let (limb, sh) = (bits / 64, bits % 64);
-    let mut out = ZERO;
+    let mut out = U256_ZERO;
     for i in 0..4 {
         let lo = if i + limb < 8 { r[i + limb] } else { 0 };
         let hi = if i + limb + 1 < 8 { r[i + limb + 1] } else { 0 };

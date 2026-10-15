@@ -15,7 +15,7 @@ use crate::params::{N, W, V, D0, WOTS_SIG, LAYER_SIZES, TOP_LAYER_SIZE}; // para
 
 use crate::tweakable_hashes::{prf, f, f_2, t_v}; // hash function instantiations
 
-use crate::u256::{U256, ZERO, u256_lt, u256_sub, u256_from_be, shr_to_u256, mul_wide}; // WOTS+ parameter computation stuff
+use crate::u256::{U256, U256_ZERO, u256_lt, u256_sub, u256_from_be, shr_to_u256, mul_wide}; // WOTS+ parameter computation stuff
 
 /////////////////////// HELPER FUNCTIONS ///////////////////////
 
@@ -49,7 +49,7 @@ fn map_to_vertex(
 
             // block = l_{d_i-j}^{<v-i>} is the size of the block for choice j
             // l_e = 0 for e < 0: choosing j > d_i would overspend the budget
-            let block: U256 = if j_i <= d_i { LAYER_SIZES[V - i - 1][d_i - j_i] } else { ZERO };
+            let block: U256 = if j_i <= d_i { LAYER_SIZES[V - i - 1][d_i - j_i] } else { U256_ZERO };
 
             // check whether x_i < sum_{0<=j<=j_i} l_{d_i-j}^{<v-i>}
             if u256_lt(&x_i, &block) {
@@ -77,7 +77,7 @@ fn map_to_vertex(
     // after the loop, x_i is x_V, and d_i is d_V
     // the last chain has only one choice, since l_e^{<1>} = 1 for 0 <= e < W
     // so x_V must be 0, and the remaining budget d_V must fit in one chain (d_V < W)
-    assert!(x_i == ZERO);
+    assert!(x_i == U256_ZERO);
     assert!(d_i < W);
 
     // 3. set a_V = W - x_V - d_V
