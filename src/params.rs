@@ -29,8 +29,9 @@ pub const M: usize = MD_LEN + IDX_LEAF_LEN + IDX_TREE_LEN;
 
 // WOTS+ parameters
 pub const W: usize = 1 << LG_W;
-pub const V: usize = spx_v();
-pub const D0: usize = spx_d0();
+const WOTS_PARAMS: (usize, usize) = wots_params();
+pub const V: usize = WOTS_PARAMS.0;
+pub const D0: usize = WOTS_PARAMS.1;
 
 // XMSS and HT parameters
 pub const H_PRIME: usize = H / D;
@@ -57,24 +58,34 @@ const fn ceil_div(x: usize, y: usize) -> usize {
     (x + y - 1) / y
 }
 
-const fn spx_v() -> usize {
-    let mut v = 1;
-    loop {
-        // w^v > 2^(lambda + log4 lambda)  <=>  2*v*lg_w > 2*lambda + log2(lambda)
-        let feasible = 2 * v * LG_W > 2 * LAMBDA + ceil_log2(LAMBDA);
-        if feasible {
-            if let Some(_) = d0_for(LG_W, v, LAMBDA) {
-                return v;
-            }
-        }
-        v += 1;
-    }
-}
+/*-------------------------------------------------------------+
+| CONSTRUCTION 5 FROM [KKW25]                                  |
+| Find the parameters for the Top Single Layer algorithm.      |
++-------------------------------------------------------------*/
+// 1. select W, V such that W^V > 2^(LAMBDA + log4 LAMBDA)
+// (W and LAMBDA are input parameters, so compute V)
+// 2. find the minimum D0 such that l_D0 >= 2^lambda
+const fn wots_params() -> (usize, usize) {
 
-const fn spx_d0() -> usize {
-    // find the minimum hypercube layer d0 such that l_d0 >= 2^lambda
-    match d0_for(LG_W, V, LAMBDA) {
-        Some(d) => d,
-        None => panic!("no layer with >= 2^lambda vertices"),
+    let mut v = 1; // start at the smallest potential V
+
+    loop {
+
+        // W^V > 2^(LAMBDA + log4(LAMBDA)) <=> 2*V*log2(W) > 2*LAMBDA + log2(LAMBDA)
+        let feasible: bool = 2 * v * LG_W > 2 * LAMBDA + ceil_log2(LAMBDA);
+
+        if feasible {
+
+            // check whether a layer D0 exists with enough nodes
+            // (V being feasible doesn't guarantee D0 to exist)
+            if let Some(d0) = d0_for(LG_W, v, LAMBDA) {
+                return (v, d0);
+            }
+
+        }
+
+        v += 1; // increment to the next V to try
+
     }
+
 }

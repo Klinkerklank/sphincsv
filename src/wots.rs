@@ -4,7 +4,7 @@
  * [QSZ26] Qin, Z., Sun, S. and Zheng, F., 'Extending the SPHINCS+ Framework: Varying the Tree Heights and Chain Lengths', Oct 2026
  * adapated to work with SPHINCS+
  * 
- * author: Dennis op 't Roodt 2026-10-12 (d.n.e.o.t.roodt@tue.nl)
+ * author: Dennis op 't Roodt 2026-10-15 (d.n.e.o.t.roodt@tue.nl)
  */
 
 use crate::adrs::Adrs;      // ADRS data structure
@@ -18,14 +18,28 @@ use crate::u256::{U256, ZERO, u256_from_be, u256_add, u256_sub, u256_lt, shr_to_
 
 /////////////////////// WOTS+ PRECOMPUTATION CODE ///////////////////////
 
-// ELL[k-1][e] = l_e^{<k>}: the number of ways to choose (j_1, ..., j_k) with each j_i in 0..W
-// (0 <= j_i <= W-1) and j_1 + ... + j_k == e. In other words, the number of vertices in
-// "layer e" of a k-chain WOTS+ grid, where layer e means the verifier does e hash steps in total.
-//
-// Rows are indexed by k-1 (k = 1..=V chains), columns by e (budget, 0..=D0).
-// Only budgets up to D0 are ever needed (map_to_vertex starts at D0 and only decreases),
-// so the table is truncated at D0.
-type Table = [[U256; D0 + 1]; V];
+// hypercube layer sizes, where rows are indexed by k-1 (chains) and columns by e (budgets):
+// LAYER_SIZES[k-1][e]
+//   = l_e^{<k>}
+//   = the number of ways to choose (j_0, ..., j_{k-1}) with each j_i in 0..W and j_0 + ... + j_{k-1} == e
+// only budgets up to D0 are ever needed (map_to_vertex starts at D0 and only decreases), so the table is truncated at D0
+type LayerSizes = [[U256; D0 + 1]; V];
+
+const TABLE: LayerSizes = build_layer_sizes(); // build the table with hypercube layer sizes
+static LAYER_SIZES: LayerSizes = TABLE;        // runtime access to the table
+const TOP_LAYER_SIZE: U256 = TABLE[V-1][D0];   // l_{d0}^{<v>}: size of the layer to map into
+
+// number of digest bytes needed such that mapping a digest uniformly onto [0, TOP_LAYER_SIZE-1] is almost unbiased
+// the digest is uniform on [0, 2^(8*len)). We compute x = floor(digest * TOP_LAYER_SIZE / 2^(8*len)),
+// which is not exactly uniform on [0, TOP_LAYER_SIZE): some x get one more preimage than others.
+// The relative bias is about TOP_LAYER_SIZE / 2^(8*len). Taking 8*len >= log2(TOP_LAYER_SIZE) + 64 bits
+// makes that at most about 2^-64. The "+ 7) / 8" rounds the bit count up to whole bytes.
+const DIGEST_LEN: usize = (bit_len(TOP_LAYER_SIZE) + 64 + 7) / 8;
+
+// x is in a U256, so the digest cannot be longer than 32 bytes
+// if this assertion fails, the parameter set needs a wider integer type
+// (and wider mul_wide / shr_to_u256)
+const _: () = assert!(DIGEST_LEN <= 32, "widen U256 if this fires");
 
 /// Builds the table of l_e^{<k>} for k = 1..=V and e = 0..=D0.
 ///
@@ -46,8 +60,8 @@ type Table = [[U256; D0 + 1]; V];
 /// which all have budget <= e, so no entry <= D0 ever depends on one > D0.
 ///
 /// `const fn` with `while` loops (no `for`, no iterators) so it can run at compile time.
-const fn build_ell() -> Table {
-    let mut t: Table = [[ZERO; D0 + 1]; V];
+const fn build_layer_sizes() -> LayerSizes {
+    let mut t: LayerSizes = [[ZERO; D0 + 1]; V];
 
     // Row k = 1 (index 0): one chain, so exactly one way for each budget 0..W-1, none above.
     let mut e = 0;
@@ -74,122 +88,99 @@ const fn build_ell() -> Table {
     t
 }
 
-/// The table, evaluated once at compile time.
-/// Declared `const` only so it can be used in other const expressions (ELL_TOP below).
-/// A `const` is inlined at each use site, so indexing it at runtime could copy the whole table.
-const TABLE: Table = build_ell();       // evaluated once at compile time
-
-/// The table as seen by runtime code. A `static` has a single address and a single copy in the binary,
-/// so `ELL[k-1][e]` in map_to_vertex is a plain memory read.
-static ELL: Table = TABLE;              // single copy in the binary: index this at runtime
-
-/// l_{d0}^{<v>}: the total number of vertices in the top layer, i.e. the size of the set
-/// that map_to_vertex ranks into. Valid x values are 0 <= x < ELL_TOP.
-const ELL_TOP: U256 = TABLE[V - 1][D0]; // l_{d0}^{<v>}: size of the layer we map into
-
-/// Number of digest bytes needed so that mapping a digest uniformly onto [0, ELL_TOP) is almost unbiased.
-///
-/// The digest z is uniform on [0, 2^(8*len)). We compute x = floor(z * ELL_TOP / 2^(8*len)),
-/// which is not exactly uniform on [0, ELL_TOP): some x get one more preimage than others.
-/// The relative bias is about ELL_TOP / 2^(8*len). Taking 8*len >= log2(ELL_TOP) + 64 bits
-/// makes that at most about 2^-64. The "+ 7) / 8" rounds the bit count up to whole bytes.
-const DIGEST_LEN: usize = (bit_len(ELL_TOP) + 64 + 7) / 8;
-
-/// z is held in a U256, so the digest cannot be longer than 32 bytes. If this fires,
-/// the parameter set needs a wider integer type (and wider mul_wide / shr_to_u256).
-const _: () = assert!(DIGEST_LEN <= 32, "widen U256 if this fires");
-
 /////////////////////// HELPER FUNCTIONS ///////////////////////
 
-/// MapToVertex (paper's algorithm), for the production parameters.
-///
-/// Input:  x in [0, l_{d0}^{<v>}), an index into the top layer
-///         (the set of all vertices (a_1..a_v), each a_i in [1, w], with sum (w - a_i) = d0).
-/// Output: (a_1, ..., a_v), each a_i in [1, w], with sum (w - a_i) == D0.
-///
-/// Notation: ELL[k-1][e] = l_e^{<k>} = number of ways to split a budget e over k chains,
-/// each taking j in 0..w.
-///
-/// Idea: the vertices are ordered chain by chain. For chain i, the choice j_i = 0, 1, 2, ...
-/// owns a contiguous block of indices of size l_{d_i - j_i}^{<v-i>}, i.e. the number of ways
-/// to spread the remaining budget d_i - j_i over the remaining v-i chains.
-/// We find which block x_i falls into; that gives j_i, and the offset within the block
-/// becomes x_{i+1}.
-fn map_to_vertex(x: U256) -> [usize; V] {
-    debug_assert!(u256_lt(&x, &ELL_TOP));
+/*-------------------------------------------------------------+
+| CONSTRUCTION 6 FROM [KKW25]                                  |
+| Maps a big integer x to a vertex in layer D0 of the          |
+| hypercube [W]^V.                                             |
++-------------------------------------------------------------*/
+fn map_to_vertex(
+    x: U256 // an index in the top hypercube layer, i.e. x in 0..l_D0^{<v>}
+) -> [usize; V] { // -> (a_0, ..., a_{V-1}), each a_i in [0, W-1], with sum_{0<=i<V}(W-a_i) == D0
 
-    let mut a = [0usize; V]; // a[i-1] holds the paper's a_i (code is 0-indexed, paper is 1-indexed)
+    assert!(u256_lt(&x, &TOP_LAYER_SIZE));
 
-    // Step 1: x_1 = x, d_1 = d0.
-    // x_i and d_i are updated in place: at the top of iteration i they hold x_i and d_i.
-    let mut x_i: U256 = x;
+    let mut a: [usize; V] = [0usize; V]; // declare output vertex
+
+    // 1. set x_1 = x and d_1 = D0
+    // x_i and d_i are updated in place: at the top of iteration i they hold x_i and d_i
+    let mut x_i: U256  = x;
     let mut d_i: usize = D0;
 
-    // Step 2: for i from 1 to v-1
+    // 2. for i from 1 to v-1
     for i in 1..V {
-        // Number of chains remaining after chain i (the paper's v-i).
-        let k = V - i;
 
-        // Step 2a: find j_i in {0..w-1} such that
-        //     sum_{0<=j<j_i}  l_{d_i-j}^{<v-i>}  <=  x_i  <  sum_{0<=j<=j_i} l_{d_i-j}^{<v-i>}
-        // We walk j upward. `block` = l_{d_i-j}^{<v-i>} is the size of the block for choice j.
-        // If x_i is not inside it, we skip the block by subtracting its size.
-        // So when the loop exits, x_i has already had sum_{0<=j<j_i} l_{d_i-j}^{<v-i>}
-        // subtracted. That subtraction is step 2d, merged into this loop.
+        // 2a. find j_i in {0, ..., W-1} such that
+        //     sum_{0<=j<j_i} l_{d_i-j}^{<v-i>} <= x_i < sum_{0<=j<=j_i} l_{d_i-j}^{<v-i>}
         let mut j_i: usize = 0;
         loop {
+
             assert!(j_i < W, "x out of range for this layer");
-            // l_e = 0 for e < 0: choosing j > d_i would overspend the budget.
-            let block: U256 = if j_i <= d_i { ELL[k - 1][d_i - j_i] } else { ZERO };
+
+            // block = l_{d_i-j}^{<v-i>} is the size of the block for choice j
+            // l_e = 0 for e < 0: choosing j > d_i would overspend the budget
+            let block: U256 = if j_i <= d_i { LAYER_SIZES[V - i - 1][d_i - j_i] } else { ZERO };
+
+            // check whether x_i < sum_{0<=j<=j_i} l_{d_i-j}^{<v-i>}
             if u256_lt(&x_i, &block) {
-                break;                      // x_i < prefix sum up to and including j: found j_i
+                break; // found j_i
             }
-            x_i = u256_sub(x_i, block);     // x_i >= prefix sum: skip this block (part of step 2d)
-            j_i += 1;
+
+            // 2d. merged into the loop:
+            // subtract l_{d_i-j}^{<v-i>} from x_i, such that at the end of the loop
+            // we already have x_{i+1} = x_i - sum_{0<=j<j_i} l_{d_i-j}^{<v-i>}
+            x_i = u256_sub(x_i, block);
+
+            j_i += 1; // move on to the next j_i candidate
+
         }
-        // Now: x_i == x_{i+1} = x_i(old) - sum_{0<=j<j_i} l_{d_i-j}^{<v-i>}   (step 2d done)
 
-        // Step 2b: a_i = w - j_i, in [1, w]
-        a[i - 1] = W - j_i;
+        // 2b. set a_i = W - j_i, where a_i in [W]
+        // ([KKW25] uses indexing that starts at 1)
+        a[i - 1] = (W - 1) - j_i;
 
-        // Step 2c: d_{i+1} = d_i - j_i = d_i - (w - a_i)
+        // 2c. set d_{i+1} = d_i - j_i = d_i - (W - a_i)
         d_i -= j_i;
+
     }
 
-    // After the loop, x_i and d_i hold x_v and d_v.
-    // The last chain has only one choice, since l_e^{<1>} = 1 for 0 <= e < w.
-    // So x_v must be 0, and the remaining budget d_v must fit in one chain (d_v < w).
+    // after the loop, x_i is x_V, and d_i is d_V
+    // the last chain has only one choice, since l_e^{<1>} = 1 for 0 <= e < W
+    // so x_V must be 0, and the remaining budget d_V must fit in one chain (d_V < W)
     assert!(x_i == ZERO);
     assert!(d_i < W);
 
-    // Step 3: a_v = w - x_v - d_v. Since x_v == 0 this is w - d_v.
-    a[V - 1] = W - d_i;
+    // 3. set a_V = W - x_V - d_V
+    // (x_V == 0, so a_V = W - d_V)
+    // ([KKW25] uses indexing that starts at 1)
+    a[V - 1] = (W - 1) - d_i;
 
-    // Step 4: output (a_1, ..., a_v)
+    // 4. output (a_1, ..., a_v)
     a
 }
 
-// map a digest to signature indices, i.e. one chain index per chain,
-// indicating per chain how many times the signer must iteratively hash
-fn top_single_layer(
-    digest: &[u8; N], // message digest
+/*-------------------------------------------------------------+
+| 'IMPLEMENTATION FOR TSL' FROM [KKW25]                        |
+| PSI: Computes a checksum-free antichain encoding.            |
++-------------------------------------------------------------*/
+// TODO is the digest length long enough? Does it need to be hashed again to form a long enough big integer input?
+fn top_single_layer_psi(
+    m: &[u8; N], // message
 ) -> [usize; V] {
 
-    // z is the digest as a big-endian integer
-    let z: U256 = u256_from_be(digest);
+    // 1. take as input x in {0, 1, ..., w^v-1}
+    let x: U256 = u256_from_be(m);
 
-    // x = floor(z * l_d0 / 2^(8*N))
-    let x: U256 = shr_to_u256(&mul_wide(&z, &ELL_TOP), 8 * N);
+    // 2. set x_d0 = floor(x * l_D0 / W^V)
+    let x_d0: U256 = shr_to_u256(&mul_wide(&x, &TOP_LAYER_SIZE), 8 * N);
 
-    // a_i in [1, w]: the paper's vertex. The verifier hashes j_i = w - a_i times
-    // to reach the chain end, so sum (w - a_i) == d0.
-    let a_vertex = map_to_vertex(x);
+    // 3. output a = map_to_vertex(x_d0)
+    let a: [usize; V] = map_to_vertex(x_d0);
 
-    // Signer hashes a_i - 1 = w - 1 - j_i times (a_i - 1 in [0, w-1], the usual chain index).
-    let mut a = [0usize; V];
-    for i in 0..V { a[i] = a_vertex[i] - 1; }
-
-    assert_eq!(a.iter().sum::<usize>(), V * (W - 1) - D0);
+    // the verifier always computes exactly D0 hashes,
+    // so assert that the sum of the signature indices == V*(W-1) - D0
+    assert_eq!(a.iter().sum::<usize>(), V*(W-1) - D0);
 
     a
 }
@@ -201,11 +192,11 @@ fn top_single_layer(
 | Chaining function used in WOTS+.                             |
 +-------------------------------------------------------------*/
 fn chain(
-    input: &[u8; N], // value to hash iteratively
-    mut i: u32,         // position in the chain
-    steps: u32,         // number of hash evaluations to do
-    pk_seed: &[u8; N],  // PK.seed
-    mut adrs: Adrs,     // ADRS
+    input: &[u8; N],   // value to hash iteratively
+    mut i: u32,        // position in the chain
+    steps: u32,        // number of hash evaluations to do
+    pk_seed: &[u8; N], // PK.seed
+    mut adrs: Adrs,    // ADRS
 ) -> [u8; N] // -> buffer
 {
 
@@ -306,8 +297,8 @@ pub fn wots_sign(
     // initialise the WOTS+ signature
     let mut sig_wots: [u8; WOTS_SIG] = [0u8; WOTS_SIG];
 
-    // compute the chain lengths based on the message
-    let lengths: [usize; V] = top_single_layer(&m);
+    // compute the checksum-free antichain lengths based on the message
+    let lengths: [usize; V] = top_single_layer_psi(&m);
     
     // clone ADRS and set the correct type for computing WOTS+ secret keys
     let mut skadrs: Adrs = Adrs::clone(&adrs);
@@ -325,7 +316,7 @@ pub fn wots_sign(
         // compute the WOTS+ secret key value
         let sk_wots: [u8; N] = prf(&pk_seed, &sk_seed, &skadrs);
 
-        // store the secret key value in the WOTS+ signature (to overwrite int he next loop)
+        // store the secret key value in the WOTS+ signature (to overwrite in the next loop)
         sig_wots[idx_chain*N..(idx_chain+1)*N].copy_from_slice(&sk_wots);
 
     }
@@ -367,8 +358,8 @@ pub fn wots_pkfromsig(
 ) -> [u8; N] // -> pk_wots
 {
 
-    // compute the chain lengths based on the message
-    let lengths: [usize; V] = top_single_layer(&m);
+    // compute the checksum-free antichain lengths based on the message
+    let lengths: [usize; V] = top_single_layer_psi(&m);
 
     // copy the WOTS+ signature into chains (as sig_wots is not writable)
     let mut chains: [[u8; N]; V] = [[0u8; N]; V];
