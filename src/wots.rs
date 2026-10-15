@@ -10,83 +10,12 @@
 use crate::adrs::Adrs;      // ADRS data structure
 use crate::adrs::adrs_type; // ADRS type constants
 
-use crate::params::{N, W, V, D0, WOTS_SIG}; // parameter values
+use crate::params::WOTS_ENC_LEN;
+use crate::params::{N, W, V, D0, WOTS_SIG, LAYER_SIZES, TOP_LAYER_SIZE}; // parameter values
 
-use crate::tweakable_hashes::{prf, f, t_v}; // hash function instantiations
+use crate::tweakable_hashes::{prf, f, f_2, t_v}; // hash function instantiations
 
-use crate::u256::{U256, ZERO, u256_from_be, u256_add, u256_sub, u256_lt, shr_to_u256, mul_wide, bit_len}; // WOTS+ parameter computation stuff
-
-/////////////////////// WOTS+ PRECOMPUTATION CODE ///////////////////////
-
-// hypercube layer sizes, where rows are indexed by k-1 (chains) and columns by e (budgets):
-// LAYER_SIZES[k-1][e]
-//   = l_e^{<k>}
-//   = the number of ways to choose (j_0, ..., j_{k-1}) with each j_i in 0..W and j_0 + ... + j_{k-1} == e
-// only budgets up to D0 are ever needed (map_to_vertex starts at D0 and only decreases), so the table is truncated at D0
-type LayerSizes = [[U256; D0 + 1]; V];
-
-const TABLE: LayerSizes = build_layer_sizes(); // build the table with hypercube layer sizes
-static LAYER_SIZES: LayerSizes = TABLE;        // runtime access to the table
-const TOP_LAYER_SIZE: U256 = TABLE[V-1][D0];   // l_{d0}^{<v>}: size of the layer to map into
-
-// number of digest bytes needed such that mapping a digest uniformly onto [0, TOP_LAYER_SIZE-1] is almost unbiased
-// the digest is uniform on [0, 2^(8*len)). We compute x = floor(digest * TOP_LAYER_SIZE / 2^(8*len)),
-// which is not exactly uniform on [0, TOP_LAYER_SIZE): some x get one more preimage than others.
-// The relative bias is about TOP_LAYER_SIZE / 2^(8*len). Taking 8*len >= log2(TOP_LAYER_SIZE) + 64 bits
-// makes that at most about 2^-64. The "+ 7) / 8" rounds the bit count up to whole bytes.
-const DIGEST_LEN: usize = (bit_len(TOP_LAYER_SIZE) + 64 + 7) / 8;
-
-// x is in a U256, so the digest cannot be longer than 32 bytes
-// if this assertion fails, the parameter set needs a wider integer type
-// (and wider mul_wide / shr_to_u256)
-const _: () = assert!(DIGEST_LEN <= 32, "widen U256 if this fires");
-
-/// Builds the table of l_e^{<k>} for k = 1..=V and e = 0..=D0.
-///
-/// Definition (what we want):
-///     l_e^{<1>} = 1                                   for 0 <= e < W, else 0
-///     l_e^{<k>} = sum_{j=0}^{W-1} l_{e-j}^{<k-1>}     (the first chain takes j, the rest share e-j)
-///                 with l_x = 0 for x < 0
-///
-/// Computing that sum directly costs W additions per entry. Instead we use a sliding window:
-///     l_e^{<k>}   = l_{e-W+1}^{<k-1>} + ... + l_e^{<k-1>}          (window of W terms)
-///     l_{e-1}^{<k>} = l_{e-W}^{<k-1>} + ... + l_{e-1}^{<k-1>}      (same window, shifted by one)
-/// Subtracting gives:
-///     l_e^{<k>} = l_{e-1}^{<k>} + l_e^{<k-1>} - l_{e-W}^{<k-1>}
-/// which is one add and one subtract per entry. For e < W the subtracted term has a
-/// negative index and is 0, so it is skipped.
-///
-/// Truncation at D0 is exact: entry (k, e) only reads (k, e-1), (k-1, e) and (k-1, e-W),
-/// which all have budget <= e, so no entry <= D0 ever depends on one > D0.
-///
-/// `const fn` with `while` loops (no `for`, no iterators) so it can run at compile time.
-const fn build_layer_sizes() -> LayerSizes {
-    let mut t: LayerSizes = [[ZERO; D0 + 1]; V];
-
-    // Row k = 1 (index 0): one chain, so exactly one way for each budget 0..W-1, none above.
-    let mut e = 0;
-    while e < W && e <= D0 { t[0][e] = [1, 0, 0, 0]; e += 1; }        // U256 value 1
-
-    // Rows k = 2..=V: each row is built from the previous one.
-    let mut k = 2;
-    while k <= V {
-        // Budget 0: every chain must take j = 0, so there is exactly one way (same as the previous row).
-        // This is also the base case of the sliding-window recurrence (no e-1 term exists).
-        t[k - 1][0] = t[k - 2][0];
-
-        let mut e = 1;
-        while e <= D0 {
-            // l_{e-1}^{<k>} + l_e^{<k-1>}: shift the window by one, adding the new term on its right edge
-            let mut s = u256_add(t[k - 1][e - 1], t[k - 2][e]);
-            // Drop the term that just left the window on the left edge (budget e-W, valid once e >= W).
-            if e >= W { s = u256_sub(s, t[k - 2][e - W]); }            // sliding window
-            t[k - 1][e] = s;
-            e += 1;
-        }
-        k += 1;
-    }
-    t
-}
+use crate::u256::{U256, ZERO, u256_lt, u256_sub, u256_from_be, shr_to_u256, mul_wide}; // WOTS+ parameter computation stuff
 
 /////////////////////// HELPER FUNCTIONS ///////////////////////
 
@@ -164,16 +93,21 @@ fn map_to_vertex(
 | 'IMPLEMENTATION FOR TSL' FROM [KKW25]                        |
 | PSI: Computes a checksum-free antichain encoding.            |
 +-------------------------------------------------------------*/
-// TODO is the digest length long enough? Does it need to be hashed again to form a long enough big integer input?
 fn top_single_layer_psi(
-    m: &[u8; N], // message
+    m: &[u8; N],       // message
+    pk_seed: &[u8; N], // PK.seed
+    adrs: &Adrs,       // ADRS
 ) -> [usize; V] {
 
+    // transform the message into a longer digest, for the requirement that
+    // mapping the digest uniformly onto [0, TOP_LAYER_SIZE-1] is almost unbiased
+    let digest: [u8; WOTS_ENC_LEN] = f_2(&pk_seed, &adrs, &m);
+
     // 1. take as input x in {0, 1, ..., w^v-1}
-    let x: U256 = u256_from_be(m);
+    let x: U256 = u256_from_be(&digest);
 
     // 2. set x_d0 = floor(x * l_D0 / W^V)
-    let x_d0: U256 = shr_to_u256(&mul_wide(&x, &TOP_LAYER_SIZE), 8 * N);
+    let x_d0: U256 = shr_to_u256(&mul_wide(&x, &TOP_LAYER_SIZE), 8 * WOTS_ENC_LEN);
 
     // 3. output a = map_to_vertex(x_d0)
     let a: [usize; V] = map_to_vertex(x_d0);
@@ -298,7 +232,7 @@ pub fn wots_sign(
     let mut sig_wots: [u8; WOTS_SIG] = [0u8; WOTS_SIG];
 
     // compute the checksum-free antichain lengths based on the message
-    let lengths: [usize; V] = top_single_layer_psi(&m);
+    let lengths: [usize; V] = top_single_layer_psi(&m, &pk_seed, &adrs);
     
     // clone ADRS and set the correct type for computing WOTS+ secret keys
     let mut skadrs: Adrs = Adrs::clone(&adrs);
@@ -359,7 +293,7 @@ pub fn wots_pkfromsig(
 {
 
     // compute the checksum-free antichain lengths based on the message
-    let lengths: [usize; V] = top_single_layer_psi(&m);
+    let lengths: [usize; V] = top_single_layer_psi(&m, &pk_seed, &adrs);
 
     // copy the WOTS+ signature into chains (as sig_wots is not writable)
     let mut chains: [[u8; N]; V] = [[0u8; N]; V];

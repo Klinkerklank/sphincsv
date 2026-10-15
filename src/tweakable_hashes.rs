@@ -6,7 +6,7 @@
 
 use crate::adrs::Adrs; // ADRS data structure
 
-use crate::params::{N, M, K, T, V}; // parameter values
+use crate::params::{K, M, N, T, V, WOTS_ENC_LEN}; // parameter values
 
 use hmac::{Hmac, Mac};     // use the HMAC function for PRF_msg
 use hmac::digest::KeyInit; // for HMAC key initialisation
@@ -171,6 +171,34 @@ pub fn f(
     // truncate the digest to N bytes
     let mut trunc: [u8; N] = [0u8; N];
     trunc.copy_from_slice(&digest[..N]);
+
+    // return the truncated digest
+    trunc
+}
+
+// F_2(PK.seed, ADRS, M_1) = Trunc(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_1))
+pub fn f_2(
+    pk_seed: &[u8; N], // PK.seed
+    adrs: &Adrs,       // ADRS
+    m: &[u8; N],       // input message
+) -> [u8; WOTS_ENC_LEN] {
+
+    // hash input setup
+    let adrsc: [u8; 22] = adrs.compress(); // compress ADRS to ADRS^c
+    
+    // process the first block of input
+    let mut hash: Sha256 = initialise_hash(pk_seed);
+    
+    // absorb all remaining inputs
+    Sha256Digest::update(&mut hash, adrsc); // absorb ADRS^c
+    Sha256Digest::update(&mut hash, m);     // absorb M1
+
+    // finalise the digest computation
+    let digest = hash.finalize();
+
+    // truncate the digest to N bytes
+    let mut trunc: [u8; WOTS_ENC_LEN] = [0u8; WOTS_ENC_LEN];
+    trunc.copy_from_slice(&digest[0..WOTS_ENC_LEN]);
 
     // return the truncated digest
     trunc
