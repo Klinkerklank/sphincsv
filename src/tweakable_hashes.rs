@@ -176,7 +176,7 @@ pub fn f(
     trunc
 }
 
-// F_2(PK.seed, ADRS, M_1) = Trunc(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_1))
+// F_2(PK.seed, ADRS, M_1) = Trunc_WOTS_ENC_LEN(SHA-256(PK.seed || toByte(0,64-n) || ADRS^c || M_1))
 pub fn f_2(
     pk_seed: &[u8; N], // PK.seed
     adrs: &Adrs,       // ADRS
