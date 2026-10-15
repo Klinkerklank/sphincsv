@@ -15,7 +15,7 @@ use crate::params::{N, W, V, D0, WOTS_SIG, LAYER_SIZES, TOP_LAYER_SIZE}; // para
 
 use crate::tweakable_hashes::{prf, f, f_2, t_v}; // hash function instantiations
 
-use crate::u256::{U256, U256_ZERO, u256_lt, u256_sub, u256_from_be, shr_to_u256, mul_wide}; // WOTS+ parameter computation stuff
+use crate::u256::{U256, U256_ZERO, u256_lt, u256_sub, u256_from_be, shr_to_u256, u256_mul_wide}; // WOTS+ parameter computation stuff
 
 /////////////////////// HELPER FUNCTIONS ///////////////////////
 
@@ -103,11 +103,11 @@ fn top_single_layer_psi(
     // mapping the digest uniformly onto [0, TOP_LAYER_SIZE-1] is almost unbiased
     let digest: [u8; WOTS_ENC_LEN] = f_2(&pk_seed, &adrs, &m);
 
-    // 1. take as input x in {0, 1, ..., w^v-1}
+    // 1. take as input x in {0, 1, ..., w^V-1}
     let x: U256 = u256_from_be(&digest);
 
-    // 2. set x_d0 = floor(x * l_D0 / W^V)
-    let x_d0: U256 = shr_to_u256(&mul_wide(&x, &TOP_LAYER_SIZE), 8 * WOTS_ENC_LEN);
+    // 2. set x_d0 = floor(x * l_D0 / (W^V-1))
+    let x_d0: U256 = shr_to_u256(&u256_mul_wide(&x, &TOP_LAYER_SIZE), 8 * WOTS_ENC_LEN);
 
     // 3. output a = map_to_vertex(x_d0)
     let a: [usize; V] = map_to_vertex(x_d0);

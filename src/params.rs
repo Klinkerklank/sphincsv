@@ -4,7 +4,7 @@
  * author: Dennis op 't Roodt 2026-10-15 (d.n.e.o.t.roodt@tue.nl)
  */
 
-use crate::u256::{U256, U256_ZERO, U256_ONE, d0_for, u256_add, u256_sub, bit_len}; // WOTS+ parameter computation stuff
+use crate::u256::{U256, U256_ZERO, U256_ONE, wots_find_d0, u256_add, u256_sub, u256_bitlen}; // WOTS+ parameter computation stuff
 
 /* input parameter constants */
 
@@ -72,7 +72,7 @@ pub static LAYER_SIZES: LayerSizes = TABLE;      // runtime access to the table
 pub const TOP_LAYER_SIZE: U256 = TABLE[V-1][D0]; // l_{d0}^{<v>}: size of the layer to map into
 
 // number of digest bytes needed such that mapping a digest uniformly onto [0, TOP_LAYER_SIZE-1] is almost unbiased
-pub const WOTS_ENC_LEN: usize = (bit_len(TOP_LAYER_SIZE) + 64 + 7) / 8;
+pub const WOTS_ENC_LEN: usize = (u256_bitlen(TOP_LAYER_SIZE) + 64 + 7) / 8;
 
 // x is in a U256, so the digest cannot be longer than 32 bytes
 // if this assertion fails, the parameter set needs a wider integer type
@@ -147,7 +147,7 @@ const fn wots_params() -> (usize, usize) {
 
             // check whether a layer D0 exists with enough nodes
             // (V being feasible doesn't guarantee D0 to exist)
-            if let Some(d0) = d0_for(LG_W, v, LAMBDA) {
+            if let Some(d0) = wots_find_d0(W, v, LAMBDA) {
                 return (v, d0);
             }
 
