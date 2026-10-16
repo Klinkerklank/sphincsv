@@ -19,11 +19,11 @@ fn ht_update_idx_lo(
 ) -> (u32, [u32; 3]) { // -> idx_leaf, idx_tree
 
     // idx_leaf = idx_tree mod 2^h':
-    // just taking idx_leaf = idx_tree[2] % 2^SPX_H_PRIME is fine only if SPX_H_PRIME <= 32
+    // just taking idx_leaf = idx_tree[2] % 2^H_PRIME_LO is fine only if H_PRIME_LO <= 32
     // (which is the case in all approved parameter sets in the SLH-DSS)
     let idx_leaf = idx_tree[2] & ((1 << H_PRIME_LO)-1);
 
-    // idx_tree >>= SPX_H_PRIME
+    // idx_tree >>= H_PRIME_LO
     idx_tree[2] = (idx_tree[2] >> H_PRIME_LO) | (idx_tree[1] << 32-H_PRIME_LO);
     idx_tree[1] = (idx_tree[1] >> H_PRIME_LO) | (idx_tree[0] << 32-H_PRIME_LO);
     idx_tree[0] >>= H_PRIME_LO;
@@ -36,11 +36,11 @@ fn ht_update_idx_hi(
 ) -> (u32, [u32; 3]) { // -> idx_leaf, idx_tree
 
     // idx_leaf = idx_tree mod 2^h':
-    // just taking idx_leaf = idx_tree[2] % 2^SPX_H_PRIME is fine only if SPX_H_PRIME <= 32
+    // just taking idx_leaf = idx_tree[2] % 2^H_PRIME_HI is fine only if H_PRIME_HI <= 32
     // (which is the case in all approved parameter sets in the SLH-DSS)
     let idx_leaf = idx_tree[2] & ((1 << H_PRIME_HI)-1);
 
-    // idx_tree >>= SPX_H_PRIME
+    // idx_tree >>= H_PRIME_HI
     idx_tree[2] = (idx_tree[2] >> H_PRIME_HI) | (idx_tree[1] << 32-H_PRIME_HI);
     idx_tree[1] = (idx_tree[1] >> H_PRIME_HI) | (idx_tree[0] << 32-H_PRIME_HI);
     idx_tree[0] >>= H_PRIME_HI;
@@ -120,7 +120,7 @@ pub fn ht_sign(
         (idx_leaf, idx_tree) = ht_update_idx_hi(idx_tree);
 
         // set the current layer and tree addresses in ADRS
-        adrs.set_layer_addr(i as u32);
+        adrs.set_layer_addr((D_LO + i) as u32);
         adrs.set_tree_addr(idx_tree);
         
         // copy the root of the previous XMSS tree
@@ -208,7 +208,7 @@ pub fn ht_verify(
         (idx_leaf, idx_tree) = ht_update_idx_hi(idx_tree);
 
         // set the current layer and tree addresses in ADRS
-        adrs.set_layer_addr(i as u32);
+        adrs.set_layer_addr((D_LO + i) as u32);
         adrs.set_tree_addr(idx_tree);
         
         // copy the root of the previous XMSS tree
