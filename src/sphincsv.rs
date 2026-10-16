@@ -7,7 +7,7 @@
 use crate::adrs::Adrs;      // ADRS data structure
 use crate::adrs::adrs_type; // ADRS type constants
 
-use crate::params::{N, H, D, H_PRIME, M, MD_LEN, IDX_TREE_LEN, IDX_LEAF_LEN, SKBYTES, PKBYTES, PORS_SIG, HT_SIG, SPXV_SIG}; // parameter values
+use crate::params::{N, H, D, H_PRIME_LO, H_PRIME_HI, M, MD_LEN, IDX_TREE_LEN, IDX_LEAF_LEN, SKBYTES, PKBYTES, PORS_SIG, HT_SIG, SPXV_SIG}; // parameter values
 
 use crate::tweakable_hashes::{prf_msg, h_msg}; // hash function instantiations
 
@@ -43,16 +43,16 @@ fn parse_indices(
 
     // compute idx_tree mod 2^(h-h'):
     // since the mod is a power of two, computing the mod result is the same as performing
-    // an AND with a bitmask where the least-significant h-h' bits are 1
-    if H-H_PRIME <= 32 {
+    // an AND with a bitmask where the least-significant H-H_PRIME_LO bits are 1
+    if H-H_PRIME_LO <= 32 {
         idx_tree[0] = 0;
         idx_tree[1] = 0;
-        idx_tree[2] &= (1 << (H-H_PRIME)) - 1;
-    } else if H-H_PRIME <= 64 {
+        idx_tree[2] &= (1 << (H-H_PRIME_LO)) - 1;
+    } else if H-H_PRIME_LO <= 64 {
         idx_tree[0] = 0;
-        idx_tree[1] &= (1 << (H-H_PRIME-32)) - 1;
-    } else { // H-H_PRIME <= 96
-        idx_tree[0] &= (1 << (H-H_PRIME-64)) - 1;
+        idx_tree[1] &= (1 << (H-H_PRIME_LO-32)) - 1;
+    } else { // H-H_PRIME_LO <= 96
+        idx_tree[0] &= (1 << (H-H_PRIME_LO-64)) - 1;
     }
 
     // initialise idx_leaf to 0
@@ -67,7 +67,7 @@ fn parse_indices(
     // compute idx_leaf mod 2^(h'):
     // since the mod is a power of two, computing the mod result is the same as performing
     // an AND with a bitmask where the least-significant h-h' bits are 1
-    idx_leaf &= (1 << H_PRIME) - 1;
+    idx_leaf &= (1 << H_PRIME_LO) - 1;
 
     (idx_tree, idx_leaf)
 }
@@ -104,9 +104,9 @@ fn sphincsv_keygen_internal(
     adrs.set_layer_addr(D as u32 - 1);
 
     // compute PK.root, which is the node in the top-most XMSS tree at
-    // horizontal index i = 0 and height z = SPX_H_PRIME
+    // horizontal index i = 0 and height z = H_PRIME_HI
     let i: u32 = 0u32;
-    let z: u32 = H_PRIME as u32;
+    let z: u32 = H_PRIME_HI as u32;
     let pk_root: [u8; N] = xmss_node(&sk_seed, i, z, &pk_seed, adrs);
 
     // copy PK.root to SK and PK

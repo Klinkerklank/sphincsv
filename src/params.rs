@@ -1,52 +1,55 @@
 /*
  * SPHINCS+V parameters
  * 
- * author: Dennis op 't Roodt 2026-10-15 (d.n.e.o.t.roodt@tue.nl)
+ * author: Dennis op 't Roodt 2026-10-16 (d.n.e.o.t.roodt@tue.nl)
  */
 
 use crate::u256::{U256, U256_ZERO, U256_ONE, wots_find_d0, u256_add, u256_sub, u256_bitlen}; // WOTS+ parameter computation stuff
 
 /* input parameter constants */
 
-pub const N: usize = 16;
-pub const LG_W: usize = 4;
-pub const LAMBDA: usize = 128;
-pub const H: usize = 66;
-pub const D: usize = 22;
-pub const MMAX: usize = 178;
-pub const T: usize = 33 * (1<<6);
-pub const K: usize = 33;
+pub const N: usize = 16;        // security parameter
+pub const LAMBDA: usize = 128;  // security parameter
+pub const LG_W: usize = 4;      // log of Winternitz parameter
+pub const H: usize = 65;        // total hypertree height
+pub const D: usize = 12;        // number of layers in the hypertree
+pub const MMAX: usize = 178;    // maximum number of authentication path nodes in a PORS+FP signature
+pub const T: usize = 33*(1<<6); // number of leaves in the PORS+FP tree
+pub const K: usize = 33;        // number of revealed leaves in a PORS+FP signature
 
 /* derived parameter constants */
 
 // SPHINCS+V parameters
-pub const SKBYTES: usize = 4*N;
-pub const PKBYTES: usize = 2*N;
-pub const MD_LEN: usize = N;
-pub const IDX_LEAF_LEN: usize = ceil_div(H - H_PRIME, 8);
-pub const IDX_TREE_LEN: usize = ceil_div(H_PRIME, 8);
-pub const M: usize = MD_LEN + IDX_LEAF_LEN + IDX_TREE_LEN;
+pub const SKBYTES: usize = 4*N; // SK = [SK.seed, SK.prf, PK.seed, PK.root], each limb being N bytes
+pub const PKBYTES: usize = 2*N; // PK =                  [PK.seed, PK.root], each limb being N bytes
+pub const MD_LEN: usize = N;    // byte length of the string to sign using PORS+FP
+pub const IDX_TREE_LEN: usize = ceil_div(H_PRIME_LO, 8);     // byte length of the lowest-layer XMSS tree index
+pub const IDX_LEAF_LEN: usize = ceil_div(H - H_PRIME_LO, 8); // byte length of the leaf index within an XMSS tree
+pub const M: usize = MD_LEN + IDX_TREE_LEN + IDX_LEAF_LEN;        // total required byte length of H_msg output 
 
 // WOTS+ parameters
 pub const W: usize = 1 << LG_W;
 const WOTS_PARAMS: (usize, usize) = wots_params();
-pub const V: usize = WOTS_PARAMS.0;
-pub const D0: usize = WOTS_PARAMS.1;
+pub const V: usize = WOTS_PARAMS.0;  // number of WOTS+ chains
+pub const D0: usize = WOTS_PARAMS.1; // number of hashes the verifier computes
 
 // XMSS and HT parameters
-pub const H_PRIME: usize = H / D;
-pub const XMSS_TREE_SIZE: usize = (1 << (H_PRIME + 1)) - 1;
+pub const H_PRIME_LO: usize = H/D;     // height of the shorter XMSS trees
+pub const H_PRIME_HI: usize = H/D + 1; // height of the taller XMSS trees
+pub const D_LO: usize = D - H%D;       // # HT layers with H_PRIME_LO-height XMSS trees
+pub const D_HI: usize = H%D;           // # HT layers with H_PRIME_HI-height XMSS trees
 
 // PORS+FP parameters
-pub const H_BAR: usize = ceil_log2(T);
-pub const PORS_TREE_SIZE: usize = (1 << (H_BAR + 1)) - 1;
+pub const H_BAR: usize = ceil_log2(T);                    // height of the PORS (without pruning) tree
+pub const PORS_TREE_SIZE: usize = (1 << (H_BAR + 1)) - 1; // number of nodes in the PORS (without pruning) tree
 
 // signature component byte lengths
-pub const WOTS_SIG: usize = V*N;
-pub const XMSS_SIG: usize = WOTS_SIG + H_PRIME*N;
-pub const HT_SIG: usize = D*XMSS_SIG;
-pub const PORS_SIG: usize = 4 + K*N + MMAX*N;
-pub const SPXV_SIG: usize = N + PORS_SIG + HT_SIG;
+pub const WOTS_SIG: usize = V*N; // includes one N-byte signature value for each of the V chains
+pub const XMSS_LO_SIG: usize = WOTS_SIG + H_PRIME_LO*N; // includes a WOTS+ signature and H_PRIME_LO N-byte authentication path nodes
+pub const XMSS_HI_SIG: usize = WOTS_SIG + H_PRIME_HI*N; // includes a WOTS+ signature and H_PRIME_HI N-byte authentication path nodes
+pub const HT_SIG: usize = D_LO*XMSS_LO_SIG + D_HI*XMSS_HI_SIG; // includes XMSS signatures for D_LO layers of XMSS trees of height XMSS_LO_SIG, and D_HI layers of XMSS trees of height XMSS_HI_SIG
+pub const PORS_SIG: usize = 4 + K*N + MMAX*N; // counter is four bytes, K N-byte leaves are revealed, number of N-byte authentication path nodes is at most MMAX
+pub const SPXV_SIG: usize = N + PORS_SIG + HT_SIG; // includes N-byte message randomiser, PORS+FP signature on the message hash, and HT signature on the PORS+FP root
 
 /* helper functions */
 
