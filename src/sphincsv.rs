@@ -1,7 +1,7 @@
 /*
  * SPHINCS+V top-level functions
  * 
- * author: Dennis op 't Roodt 2026-10-12 (d.n.e.o.t.roodt@tue.nl)
+ * author: Dennis op 't Roodt 2026-10-16 (d.n.e.o.t.roodt@tue.nl)
  */
 
 use crate::adrs::Adrs;      // ADRS data structure
@@ -115,7 +115,6 @@ fn sphincsv_keygen_internal(
     } else { // top-layer XMSS tree is short
         pk_root = xmss_node(&sk_seed, 0u32, H_PRIME_LO as u32, &pk_seed, adrs, H_PRIME_LO);
     }
-    
 
     // copy PK.root to SK and PK
     sk[3*N..4*N].copy_from_slice(&pk_root);
