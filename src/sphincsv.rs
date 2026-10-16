@@ -7,7 +7,7 @@
 use crate::adrs::Adrs;      // ADRS data structure
 use crate::adrs::adrs_type; // ADRS type constants
 
-use crate::params::{N, H, D, H_PRIME_LO, H_PRIME_HI, M, MD_LEN, IDX_TREE_LEN, IDX_LEAF_LEN, SKBYTES, PKBYTES, PORS_SIG, HT_SIG, SPXV_SIG}; // parameter values
+use crate::params::{N, H, D, D_HI, H_PRIME_LO, H_PRIME_HI, M, MD_LEN, IDX_TREE_LEN, IDX_LEAF_LEN, SKBYTES, PKBYTES, PORS_SIG, HT_SIG, SPXV_SIG}; // parameter values
 
 use crate::tweakable_hashes::{prf_msg, h_msg}; // hash function instantiations
 
@@ -44,14 +44,19 @@ fn parse_indices(
     // compute idx_tree mod 2^(h-h'):
     // since the mod is a power of two, computing the mod result is the same as performing
     // an AND with a bitmask where the least-significant H-H_PRIME_LO bits are 1
-    if H-H_PRIME_LO <= 32 {
+    if H-H_PRIME_LO < 32 {
         idx_tree[0] = 0;
         idx_tree[1] = 0;
         idx_tree[2] &= (1 << (H-H_PRIME_LO)) - 1;
-    } else if H-H_PRIME_LO <= 64 {
+    } else if H-H_PRIME_LO == 32 { // idx_tree[2] is masked with the all-one u32, i.e. nothing happens to it
+        idx_tree[0] = 0;
+        idx_tree[1] = 0;
+    } else if H-H_PRIME_LO < 64 {
         idx_tree[0] = 0;
         idx_tree[1] &= (1 << (H-H_PRIME_LO-32)) - 1;
-    } else { // H-H_PRIME_LO <= 96
+    } else if H-H_PRIME_LO == 64 { // idx_tree[1] is masked with the all-one u32, i.e. nothing happens to it
+        idx_tree[0] = 0;
+    }  else { // H-H_PRIME_LO < 96
         idx_tree[0] &= (1 << (H-H_PRIME_LO-64)) - 1;
     }
 
@@ -103,11 +108,14 @@ fn sphincsv_keygen_internal(
     // set the layer address to the highest hypertree layer
     adrs.set_layer_addr(D as u32 - 1);
 
-    // compute PK.root, which is the node in the top-most XMSS tree at
-    // horizontal index i = 0 and height z = H_PRIME_HI
-    let i: u32 = 0u32;
-    let z: u32 = H_PRIME_HI as u32;
-    let pk_root: [u8; N] = xmss_node(&sk_seed, i, z, &pk_seed, adrs, H_PRIME_HI);
+    // compute PK.root, which is the root of the top-most XMSS tree
+    let pk_root: [u8; N];
+    if D_HI != 0 { // top-layer XMSS tree is tall
+        pk_root = xmss_node(&sk_seed, 0u32, H_PRIME_HI as u32, &pk_seed, adrs, H_PRIME_HI);
+    } else { // top-layer XMSS tree is short
+        pk_root = xmss_node(&sk_seed, 0u32, H_PRIME_LO as u32, &pk_seed, adrs, H_PRIME_LO);
+    }
+    
 
     // copy PK.root to SK and PK
     sk[3*N..4*N].copy_from_slice(&pk_root);

@@ -23,8 +23,8 @@ pub const K: usize = 33;        // number of revealed leaves in a PORS+FP signat
 pub const SKBYTES: usize = 4*N; // SK = [SK.seed, SK.prf, PK.seed, PK.root], each limb being N bytes
 pub const PKBYTES: usize = 2*N; // PK =                  [PK.seed, PK.root], each limb being N bytes
 pub const MD_LEN: usize = N;    // byte length of the string to sign using PORS+FP
-pub const IDX_TREE_LEN: usize = ceil_div(H_PRIME_LO, 8);     // byte length of the lowest-layer XMSS tree index
-pub const IDX_LEAF_LEN: usize = ceil_div(H - H_PRIME_LO, 8); // byte length of the leaf index within an XMSS tree
+pub const IDX_TREE_LEN: usize = ceil_div(H - H_PRIME_LO, 8); // byte length of the XMSS tree index in the lowest HT layer
+pub const IDX_LEAF_LEN: usize = ceil_div(H_PRIME_LO, 8);     // byte length of the leaf index within an XMSS tree
 pub const M: usize = MD_LEN + IDX_TREE_LEN + IDX_LEAF_LEN;        // total required byte length of H_msg output 
 
 // WOTS+ parameters

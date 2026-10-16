@@ -36,6 +36,6 @@ fn main() {
     
     // verify a SPHINCS+V signature
     let res: bool = sphincsv_verify(&context, &message, &sig_sphincsv, &pk);
-    if res { println!("verification succes!\n"); } else { println!("verification failed :(\n"); }
+    if res { println!("\x1b[1;92mverification succes!\x1b[0m\n"); } else { println!("\x1b[1;91mverification failed :(\x1b[0m\n"); }
 
 }

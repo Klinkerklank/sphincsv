@@ -8,7 +8,7 @@
 
 use crate::adrs::Adrs; // ADRS data structure
 
-use crate::params::{N, H_PRIME_LO, H_PRIME_HI, D_LO, D_HI, IDX_TREE_LEN, XMSS_LO_SIG, XMSS_HI_SIG, HT_SIG}; // parameter values
+use crate::params::{N, H_PRIME_LO, H_PRIME_HI, D_LO, D_HI, XMSS_LO_SIG, XMSS_HI_SIG, HT_SIG}; // parameter values
 
 use crate::xmss::{xmss_pkfromsig, xmss_lo_sign, xmss_hi_sign}; // XMSS implementation
 
@@ -68,8 +68,7 @@ pub fn ht_sign(
 
     // copy the given tree and leaf indices
     let mut idx_leaf: u32 = leaf;
-    let mut idx_tree: [u32; 3] = [0u32; 3];
-    for i in 0..IDX_TREE_LEN { idx_tree[i] = tree[i]; }
+    let mut idx_tree: [u32; 3] = tree;
 
     // initialise ADRS with the tree index
     let mut adrs: Adrs = Adrs::new();
@@ -157,8 +156,7 @@ pub fn ht_verify(
 
     // copy the given tree and leaf indices
     let mut idx_leaf: u32 = leaf;
-    let mut idx_tree: [u32; 3] = [0u32; 3];
-    for i in 0..IDX_TREE_LEN { idx_tree[i] = tree[i]; }
+    let mut idx_tree: [u32; 3] = tree;
 
     // initialise ADRS with the tree index
     let mut adrs: Adrs = Adrs::new();
