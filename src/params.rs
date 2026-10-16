@@ -38,6 +38,7 @@ pub const H_PRIME_LO: usize = H/D;     // height of the shorter XMSS trees
 pub const H_PRIME_HI: usize = H/D + 1; // height of the taller XMSS trees
 pub const D_LO: usize = D - H%D;       // # HT layers with H_PRIME_LO-height XMSS trees
 pub const D_HI: usize = H%D;           // # HT layers with H_PRIME_HI-height XMSS trees
+pub const XMSS_TREE_SIZE: usize = (1 << (H_PRIME_HI + 1)) - 1; // upperbound of XMSS tree size
 
 // PORS+FP parameters
 pub const H_BAR: usize = ceil_log2(T);                    // height of the PORS (without pruning) tree

@@ -107,7 +107,7 @@ fn sphincsv_keygen_internal(
     // horizontal index i = 0 and height z = H_PRIME_HI
     let i: u32 = 0u32;
     let z: u32 = H_PRIME_HI as u32;
-    let pk_root: [u8; N] = xmss_node(&sk_seed, i, z, &pk_seed, adrs);
+    let pk_root: [u8; N] = xmss_node(&sk_seed, i, z, &pk_seed, adrs, H_PRIME_HI);
 
     // copy PK.root to SK and PK
     sk[3*N..4*N].copy_from_slice(&pk_root);

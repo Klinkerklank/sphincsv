@@ -1,13 +1,13 @@
 /*
  * XMSS algorithms
  * 
- * author: Dennis op 't Roodt 2026-10-12 (d.n.e.o.t.roodt@tue.nl)
+ * author: Dennis op 't Roodt 2026-10-16 (d.n.e.o.t.roodt@tue.nl)
  */
 
 use crate::adrs::Adrs;      // ADRS data structure
 use crate::adrs::adrs_type; // ADRS type constants
 
-use crate::params::{N, H_PRIME, XMSS_TREE_SIZE, WOTS_SIG, XMSS_SIG}; // parameter values
+use crate::params::{N, H_PRIME_LO, H_PRIME_HI, XMSS_TREE_SIZE, WOTS_SIG, XMSS_LO_SIG, XMSS_HI_SIG}; // parameter values
 
 use crate::tweakable_hashes::{h}; // hash function instantiations
 
@@ -29,9 +29,10 @@ fn flat_tree_idx(
     // i = horizontal index of the node in the PORS+FP tree
     // z = height of the node in the PORS+FP tree
     (i, z): (u32, u32), // node
+    h_prime: usize,               // height of the XMSS tree
 ) -> usize {
     // flat_tree_idx = 2^(h'+1) - 2^(h'+1-z) + i
-    ((1 << (H_PRIME + 1)) - (1 << (H_PRIME + 1 - (z as usize))) + i) as usize
+    ((1 << (h_prime + 1)) - (1 << (h_prime + 1 - (z as usize))) + i) as usize
 }
 
 //////////////////////// MAIN FUNCTIONS ////////////////////////
@@ -47,6 +48,7 @@ pub fn xmss_node(
     z_target: u32,     // target node height
     pk_seed: &[u8; N], // PK.seed
     mut adrs: Adrs,    // ADRS
+    h_prime: usize,    // height of the XMSS tree
 ) -> [u8; N] // -> root
 {
 
@@ -77,7 +79,7 @@ pub fn xmss_node(
             } else { // internal node: the node value is the hash of its two children lnode and rnode
 
                 // get the left child
-                let mut idx: usize = flat_tree_idx(lchild((i as u32, z as u32))) * N;
+                let mut idx: usize = flat_tree_idx(lchild((i as u32, z as u32)), h_prime) * N;
                 let mut lnode: [u8; N] = [0u8; N];
                 lnode.copy_from_slice(&flat_tree[idx..idx+N]);
 
@@ -95,7 +97,7 @@ pub fn xmss_node(
                 let node: [u8; N] = h(pk_seed, &adrs, &lnode, &rnode);
 
                 // compute the byte offset of node (i, z) in the flattened tree
-                let idx: usize = flat_tree_idx((i as u32, z as u32)) * N;
+                let idx: usize = flat_tree_idx((i as u32, z as u32), h_prime) * N;
 
                 // set the internal node in the flattened tree
                 flat_tree[idx..idx+N].copy_from_slice(&node);
@@ -107,7 +109,7 @@ pub fn xmss_node(
     }
 
     // get the root of the subtree at (i_target, z_target)
-    let idx: usize = flat_tree_idx((i_target, z_target)) * N; // compute the byte offset of node (i_target, z_target) in the flattened tree
+    let idx: usize = flat_tree_idx((i_target, z_target), h_prime) * N; // compute the byte offset of node (i_target, z_target) in the flattened tree
     let mut node: [u8; N] = [0u8; N]; // declare the subtree root value array
     node.copy_from_slice(&flat_tree[idx..idx+N]); // copy the subtree root from the flattened tree
 
@@ -116,28 +118,74 @@ pub fn xmss_node(
 
 /*-------------------------------------------------------------+
 | ALGORITHM 10 FROM SLH-DSS (FIPS 205)                         |
-| Generates an XMSS signature.                                 |
+| Generates an XMSS signature for tree height = H_PRIME_LO.    |
 +-------------------------------------------------------------*/
-pub fn xmss_sign(
+pub fn xmss_lo_sign(
     m: &[u8; N],       // message to sign (XMSS public key or PORS+FP public key)
     sk_seed: &[u8; N], // SK.seed
     idx: u32,          // WOTS+ leaf index to sign with
     pk_seed: &[u8; N], // PK.seed
     mut adrs: Adrs,    // ADRS
-) -> [u8; XMSS_SIG] // -> sig_xmss
+) -> [u8; XMSS_LO_SIG] // -> sig_xmss
 {
 
     // initialise the XMSS signature
-    let mut sig_xmss: [u8; XMSS_SIG] = [0u8; XMSS_SIG];
+    let mut sig_xmss: [u8; XMSS_LO_SIG] = [0u8; XMSS_LO_SIG];
 
     // compute the sibling node's horizontal index
     let mut k: u32 = idx ^ 1;
 
     // compute and store the authentication path AUTH
-    for z in 0..H_PRIME {
+    for z in 0..H_PRIME_LO {
         
         // compute the sibling node
-        let auth_node: [u8; N] = xmss_node(&sk_seed, k, z as u32, &pk_seed, adrs);
+        let auth_node: [u8; N] = xmss_node(&sk_seed, k, z as u32, &pk_seed, adrs, H_PRIME_LO);
+
+        // store the sibling node in the XMSS signature
+        sig_xmss[WOTS_SIG+z*N .. WOTS_SIG+(z+1)*N].copy_from_slice(&auth_node);
+        
+        // update the sibling node's horizontal index for the next iteration
+        k = (k >> 1) ^ 1;
+
+    }
+
+    // set the correct values in ADRS for WOTS+ hashing
+    adrs.set_type_and_clear(adrs_type::WOTS_HASH);
+    adrs.set_key_pair_addr(idx);
+    
+    // compute the WOTS+ signature on the XMSS or PORS+FP public key
+    let sig_wots: [u8; WOTS_SIG] = wots_sign(&m, &sk_seed, &pk_seed, adrs);
+
+    // store the WOTS+ signature in the XMSS signature
+    sig_xmss[0..WOTS_SIG].copy_from_slice(&sig_wots);
+
+    sig_xmss
+}
+
+/*-------------------------------------------------------------+
+| ALGORITHM 10 FROM SLH-DSS (FIPS 205)                         |
+| Generates an XMSS signature for tree height = H_PRIME_HI.    |
++-------------------------------------------------------------*/
+pub fn xmss_hi_sign(
+    m: &[u8; N],       // message to sign (XMSS public key or PORS+FP public key)
+    sk_seed: &[u8; N], // SK.seed
+    idx: u32,          // WOTS+ leaf index to sign with
+    pk_seed: &[u8; N], // PK.seed
+    mut adrs: Adrs,    // ADRS
+) -> [u8; XMSS_HI_SIG] // -> sig_xmss
+{
+
+    // initialise the XMSS signature
+    let mut sig_xmss: [u8; XMSS_HI_SIG] = [0u8; XMSS_HI_SIG];
+
+    // compute the sibling node's horizontal index
+    let mut k: u32 = idx ^ 1;
+
+    // compute and store the authentication path AUTH
+    for z in 0..H_PRIME_HI {
+        
+        // compute the sibling node
+        let auth_node: [u8; N] = xmss_node(&sk_seed, k, z as u32, &pk_seed, adrs, H_PRIME_HI);
 
         // store the sibling node in the XMSS signature
         sig_xmss[WOTS_SIG+z*N .. WOTS_SIG+(z+1)*N].copy_from_slice(&auth_node);
@@ -166,10 +214,11 @@ pub fn xmss_sign(
 +-------------------------------------------------------------*/
 pub fn xmss_pkfromsig(
     idx: u32,                  // WOTS+ leaf index to sign with
-    sig_xmss: &[u8; XMSS_SIG], // XMSS signature
+    sig_xmss: &[u8],           // XMSS signature
     m: &[u8; N],               // message to sign (XMSS public key or PORS+FP public key)
     pk_seed: &[u8; N],         // PK.seed
     mut adrs: Adrs,            // ADRS
+    h_prime: usize,            // height of the XMSS tree
 ) -> [u8; N] // -> pk_xmss
 {
 
@@ -194,7 +243,7 @@ pub fn xmss_pkfromsig(
     adrs.set_type_and_clear(adrs_type::TREE);
     adrs.set_tree_index(idx);
 
-    for k in 0..H_PRIME {
+    for k in 0..h_prime {
 
         // set the parent node's height
         adrs.set_tree_height(k as u32 + 1);
